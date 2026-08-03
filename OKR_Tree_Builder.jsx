@@ -20,6 +20,14 @@ const EN_DICT = {
   "Общее дерево OKR": "Combined OKR Tree",
   "Проекты": "Projects",
   "Дашборд трекинга": "Tracking Dashboard",
+  "Гант": "Gantt",
+  "Главные цели": "Main goals",
+  "Волны": "Waves",
+  "Кварталы": "Quarters",
+  "Месяцы": "Months",
+  "Задачи": "Tasks",
+  "план (без трекинга)": "planned (not tracked)",
+  "Пока нет заполненных целей ни в одном треке.": "No goals filled in yet in any track.",
 
   "Google Таблица": "Google Sheet",
   "Войти через Google": "Sign in with Google",
@@ -88,6 +96,7 @@ const EN_DICT = {
   "значение на конец недели": "value at week end",
   "Факт": "Actual",
   "Поставлено": "Set on",
+  "Дата начала трека": "Track start date",
   "Срок": "Due",
   "осталось": "left",
   "дн.": "d.",
@@ -99,6 +108,7 @@ const EN_DICT = {
   "изменить срок": "change deadline",
   "сброс": "reset",
   "готово": "done",
+  "сегодня": "today",
   "Уверенность 1-10": "Confidence 1-10",
   "На треке": "On track",
   "Есть риск": "At risk",
@@ -153,6 +163,9 @@ const EN_DICT = {
   "Поиск по названию, функции, дивизиону…": "Search by name, function, division…",
   "Ничего не найдено": "Nothing found",
   "Описание проекта": "Project description",
+  "Тип проекта": "Project type",
+  "RUN — текущая операционная деятельность": "RUN — ongoing operational activity",
+  "Change — разовая инициатива изменений": "Change — one-off change initiative",
   "Кратко опишите проект…": "Briefly describe the project…",
   "Каким трекам помогает": "Which tracks it supports",
   "KR проекта": "Project KRs",
@@ -1878,10 +1891,14 @@ function createUltimateObjective(n) {
 }
 function migrateTrackData(data) {
   if (!data) return createTrackData();
-  if (Array.isArray(data.ultimateObjectives)) return data;
+  if (Array.isArray(data.ultimateObjectives)) {
+    if (!data.startDate) data.startDate = todayISO();
+    return data;
+  }
   // legacy shape: single ultimateObjective/Owner + top-level krOutcomes
   return {
     mission: data.mission || "",
+    startDate: todayISO(),
     ultimateObjectives: [{
       id: newId(),
       label: "Главная цель 1",
@@ -1893,7 +1910,7 @@ function migrateTrackData(data) {
 }
 
 function createTrackData() {
-  return { mission: "", ultimateObjectives: [createUltimateObjective(1)] };
+  return { mission: "", startDate: todayISO(), ultimateObjectives: [createUltimateObjective(1)] };
 }
 
 function createTrackerWeek(n) {
@@ -1925,6 +1942,24 @@ function deadlineUrgency(daysLeft) {
   if (daysLeft <= 14) return { label: "Критично", color: "#dc2626" };
   if (daysLeft <= 45) return { label: "Скоро", color: "#ca8a04" };
   return { label: "В графике", color: "#16a34a" };
+}
+function clamp01to100(n) {
+  return Math.min(100, Math.max(0, n));
+}
+function buildMonthTicks(rangeStartISO, rangeEndISO) {
+  const start = new Date(rangeStartISO + "T00:00:00");
+  const end = new Date(rangeEndISO + "T00:00:00");
+  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  const ticks = [];
+  while (cur <= end) {
+    if (cur >= start) {
+      const iso = cur.toISOString().slice(0, 10);
+      const label = cur.toLocaleDateString("ru-RU", { month: "short", year: "2-digit" });
+      ticks.push({ iso, label });
+    }
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return ticks;
 }
 function computeTracking(t) {
   if (!t) return { fact: 0, pct: 0 };
@@ -2079,7 +2114,8 @@ const STATUS_TEXT_TO_CODE = { "В плане": "G", "Откл. до 10%": "Y", "
 
 function buildProjectRows(projects) {
   return projects.map((p) => ({
-    "Проект": p.name, "Дивизион": p.division, "Функция": p.function, "Статус": p.status,
+    "Проект": p.name, "Тип (RUN/Change)": (p.projectType || "run") === "change" ? "Change" : "RUN",
+    "Дивизион": p.division, "Функция": p.function, "Статус": p.status,
     "Месяц запуска": p.launchMonth || "", "Описание": p.description,
     "Треки (через ;)": p.trackIds.map((id) => (TRACKS.find((t) => t.id === id) || {}).name || id).join("; "),
     "Активность мес.1-12 (через запятую)": p.activity.join(","),
@@ -2263,6 +2299,7 @@ function rebuildProjectsFromSheets(projectRows, krRows, existingProjects) {
         id: existing ? existing.id : newId(),
         name, division: r["Дивизион"] || "", function: r["Функция"] || "",
         status: r["Статус"] || "", statusCode: STATUS_TEXT_TO_CODE[r["Статус"]] || (existing ? existing.statusCode : "G"),
+        projectType: normKey(r["Тип (RUN/Change)"]) === "change" ? "change" : "run",
         launchMonth: r["Месяц запуска"] ? String(r["Месяц запуска"]) : null,
         description: r["Описание"] || "", trackIds, activity: activity.slice(0, 12),
         krs: krRows.filter((k) => normKey(k["Проект"]) === normKey(name)).map((k, ki) => {
@@ -2907,6 +2944,7 @@ function KROutcomeCard({ path, outcome, onRemove }) {
 
 function TrackEditor({ trackId }) {
   const t = useT();
+  const authCtx = useAuthCtx();
   const [data, setData] = useState(createTrackData());
   const [loaded, setLoaded] = useState(false);
 
@@ -3001,9 +3039,24 @@ function TrackEditor({ trackId }) {
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start">
           <Collapsible title={t("Миссия трека")} icon={<CheckCircle2 size={14} />} tone={TONES.mission} accentColor={trackColor}>
-            <div>
-              <div className={`text-xs mb-0.5 ${TRACK_TONE_TEXT[trackId] || "text-amber-700"}`}>{t("Миссия трека")}</div>
-              <Field value={data.mission} placeholder={t("Зачем трек существует")} onChange={(v) => update(["mission"], v)} />
+            <div className="space-y-2">
+              <div>
+                <div className={`text-xs mb-0.5 ${TRACK_TONE_TEXT[trackId] || "text-amber-700"}`}>{t("Миссия трека")}</div>
+                <Field value={data.mission} placeholder={t("Зачем трек существует")} onChange={(v) => update(["mission"], v)} />
+              </div>
+              <div className="flex items-center gap-1.5 t11 text-neutral-400">
+                <CalendarRange size={11} className="shrink-0" />
+                <span>{t("Дата начала трека")}:</span>
+                {authCtx.isAdmin ? (
+                  <input
+                    type="date" value={data.startDate || todayISO()}
+                    onChange={(e) => update(["startDate"], e.target.value)}
+                    className="text-xs border border-neutral-200 rounded px-1 py-0.5"
+                  />
+                ) : (
+                  <span className="text-neutral-600">{formatDateRu(data.startDate || todayISO())}</span>
+                )}
+              </div>
             </div>
           </Collapsible>
 
@@ -3758,7 +3811,19 @@ function ProjectCard({ project, onChange, onDelete }) {
         {open ? <ChevronDown size={15} className="text-neutral-400 shrink-0 mt-0.5" /> : <ChevronRight size={15} className="text-neutral-400 shrink-0 mt-0.5" />}
         <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: color }} title={project.status} />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-neutral-800 break-words">{project.name}</div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-medium text-neutral-800 break-words">{project.name}</span>
+            <span
+              className="t10 px-1.5 py-0.5 rounded-full shrink-0 font-medium"
+              style={
+                (project.projectType || "run") === "change"
+                  ? { background: "#ede9fe", color: "#6d28d9" }
+                  : { background: "#e0f2fe", color: "#0369a1" }
+              }
+            >
+              {(project.projectType || "run") === "change" ? "Change" : "RUN"}
+            </span>
+          </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 t11 text-neutral-400">
             <span>{project.division}</span>
             <span>·</span>
@@ -3781,6 +3846,36 @@ function ProjectCard({ project, onChange, onDelete }) {
 
       {open && (
         <div className="px-3 pb-3 pt-1 space-y-3 border-t border-neutral-100">
+          <div>
+            <div className="text-xs text-neutral-500 mb-1">{t("Тип проекта")}</div>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => update("projectType", "run")}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border"
+                style={
+                  (project.projectType || "run") === "run"
+                    ? { background: "#e0f2fe", borderColor: "#0369a1", color: "#0369a1" }
+                    : { borderColor: "#e5e5e5", color: "#737373" }
+                }
+              >
+                RUN
+              </button>
+              <button
+                onClick={() => update("projectType", "change")}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border"
+                style={
+                  (project.projectType || "run") === "change"
+                    ? { background: "#ede9fe", borderColor: "#6d28d9", color: "#6d28d9" }
+                    : { borderColor: "#e5e5e5", color: "#737373" }
+                }
+              >
+                Change
+              </button>
+            </div>
+            <div className="t11 text-neutral-400 mt-1">
+              {(project.projectType || "run") === "change" ? t("Change — разовая инициатива изменений") : t("RUN — текущая операционная деятельность")}
+            </div>
+          </div>
           <div>
             <div className="text-xs text-neutral-500 mb-1">{t("Описание проекта")}</div>
             <textarea
@@ -3863,6 +3958,7 @@ function ProjectsModule() {
   const [query, setQuery] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("");
   const [trackFilter, setTrackFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
 
   if (!loaded) {
     return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
@@ -3878,7 +3974,7 @@ function ProjectsModule() {
     setProjects((prev) => [
       {
         id: newId(), division: "", function: "", name: "", status: "В плане", statusCode: "G",
-        launchMonth: null, activity: Array(12).fill(0), description: "", krs: [], trackIds: [],
+        launchMonth: null, activity: Array(12).fill(0), description: "", krs: [], trackIds: [], projectType: "run",
       },
       ...prev,
     ]);
@@ -3889,6 +3985,7 @@ function ProjectsModule() {
   const filtered = projects.filter((p) => {
     if (divisionFilter && p.division !== divisionFilter) return false;
     if (trackFilter && !p.trackIds.includes(trackFilter)) return false;
+    if (typeFilter && (p.projectType || "run") !== typeFilter) return false;
     if (query && !(`${p.name} ${p.function} ${p.division}`.toLowerCase().includes(query.toLowerCase()))) return false;
     return true;
   });
@@ -3928,6 +4025,23 @@ function ProjectsModule() {
         })}
       </div>
 
+      <div className="flex gap-1.5 justify-center">
+        <button
+          onClick={() => setTypeFilter(typeFilter === "run" ? "" : "run")}
+          className="text-xs px-2.5 py-1 rounded-full border"
+          style={typeFilter === "run" ? { background: "#e0f2fe", borderColor: "#0369a1", color: "#0369a1" } : { borderColor: "#e5e5e5", color: "#737373" }}
+        >
+          RUN
+        </button>
+        <button
+          onClick={() => setTypeFilter(typeFilter === "change" ? "" : "change")}
+          className="text-xs px-2.5 py-1 rounded-full border"
+          style={typeFilter === "change" ? { background: "#ede9fe", borderColor: "#6d28d9", color: "#6d28d9" } : { borderColor: "#e5e5e5", color: "#737373" }}
+        >
+          Change
+        </button>
+      </div>
+
       <div className="flex gap-2">
         <div className="flex-1 flex items-center gap-1.5 bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5">
           <Search size={13} className="text-neutral-400 shrink-0" />
@@ -3965,6 +4079,87 @@ function ProjectsModule() {
   );
 }
 
+function rangeFromOffset(trackStart, offsetMonths, spanMonths) {
+  return { start: addMonthsISO(trackStart, offsetMonths), end: addMonthsISO(trackStart, offsetMonths + spanMonths) };
+}
+function resolveRange(tracking, structuralRange, horizonMonths) {
+  if (tracking) {
+    const s = tracking.startDate || structuralRange.start;
+    const e = tracking.deadlineOverride || addMonthsISO(s, horizonMonths || 1);
+    return { start: s, end: e, tracked: true };
+  }
+  return { start: structuralRange.start, end: structuralRange.end, tracked: false };
+}
+function taskPointDate(monthStart, monthEnd, idx, total) {
+  const totalDays = Math.max(1, daysBetweenISO(monthStart, monthEnd));
+  const offsetDays = Math.round(((idx + 0.5) / Math.max(1, total)) * totalDays);
+  const d = new Date(monthStart + "T00:00:00");
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+function waveHasAnyContent(w) {
+  return !!w.targetText || waveHasContent(w);
+}
+
+// Walks the whole tree for one track — mission down to tasks — producing flat Gantt rows.
+// maxDepth caps how deep to recurse: 0=главные цели … 6=задачи.
+function buildFullGanttRows(trackId, trackName, data, maxDepth) {
+  const rows = [];
+  const trackStart = data.startDate || todayISO();
+
+  (data.ultimateObjectives || []).forEach((uo, ui) => {
+    if (!ultimateObjectiveHasContent(uo)) return;
+    const uoRange = rangeFromOffset(trackStart, 0, 18);
+    rows.push({ id: `uo-${uo.id}`, depth: 0, trackId, trackName, levelKey: "Главная цель", levelExtra: `${ui + 1}`, title: uo.text, ...uoRange, tracked: false });
+    if (maxDepth < 1) return;
+
+    uo.krOutcomes.forEach((o) => {
+      if (!outcomeHasContent(o)) return;
+      const oRange = resolveRange(o.tracking, rangeFromOffset(trackStart, 0, 18), 18);
+      rows.push({ id: `o-${o.id}`, depth: 1, trackId, trackName, levelKey: "KR Outcome", levelExtra: "", title: o.text || o.label, ...oRange });
+      if (maxDepth < 2) return;
+
+      o.krOutputs.forEach((ko) => {
+        if (!outputHasContent(ko)) return;
+        const koRange = resolveRange(ko.tracking, rangeFromOffset(trackStart, 0, 18), 18);
+        rows.push({ id: `ko-${ko.id}`, depth: 2, trackId, trackName, levelKey: ko.label, levelExtra: "", title: ko.text, ...koRange });
+        if (maxDepth < 3) return;
+
+        ko.waves.forEach((w, wi) => {
+          if (!waveHasAnyContent(w)) return;
+          const wRange = rangeFromOffset(trackStart, wi * 6, 6);
+          rows.push({ id: `w-${w.id}`, depth: 3, trackId, trackName, levelKey: "Волна", levelExtra: `${wi + 1}`, title: w.status === "decomposed" ? (w.objective6mo || "") : w.targetText, start: wRange.start, end: wRange.end, tracked: false });
+          if (maxDepth < 4 || w.status !== "decomposed") return;
+
+          w.quarters.forEach((q, qi) => {
+            if (!quarterHasContent(q)) return;
+            const qStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3, 3);
+            const qRange = resolveRange(q.tracking, qStructural, 3);
+            rows.push({ id: `q-${q.id}`, depth: 4, trackId, trackName, levelKey: "Квартал", levelExtra: q.label, title: q.milestone || "", ...qRange });
+            if (maxDepth < 5) return;
+
+            q.monthlyKRs.forEach((m, mi) => {
+              if (!monthHasContent(m)) return;
+              const mStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3 + mi, 1);
+              const mRange = resolveRange(m.tracking, mStructural, 1);
+              rows.push({ id: `m-${m.id}`, depth: 5, trackId, trackName, levelKey: "KR месяца", levelExtra: m.label, title: m.text || "", ...mRange });
+              if (maxDepth < 6) return;
+
+              const tasks = m.tasks.filter((tk) => !!tk.text);
+              tasks.forEach((tk, ti) => {
+                const point = taskPointDate(mStructural.start, mStructural.end, ti, tasks.length);
+                rows.push({ id: `tk-${tk.id}`, depth: 6, trackId, trackName, levelKey: "Задача", levelExtra: "", title: tk.text, start: point, end: point, tracked: false, isTask: true });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+
+  return rows;
+}
+
 function collectTrackers(trackId, trackName, data, directory) {
   const items = [];
   (data.ultimateObjectives || []).forEach((uo) => {
@@ -3972,14 +4167,14 @@ function collectTrackers(trackId, trackName, data, directory) {
     if (o.tracking) {
       items.push({
         key: `outcome-${o.id}`, trackId, trackName, level: "KR Outcome (18 мес.)",
-        title: o.text || o.label, owner: ownerNameById(directory, o.objectiveOwner), tracking: o.tracking,
+        title: o.text || o.label, owner: ownerNameById(directory, o.objectiveOwner), tracking: o.tracking, horizonMonths: 18,
       });
     }
     (o.krOutputs || []).forEach((ko) => {
       if (ko.tracking) {
         items.push({
           key: `output-${ko.id}`, trackId, trackName, level: `${ko.label} (18 мес.)`,
-          title: ko.text || ko.label, owner: "", tracking: ko.tracking,
+          title: ko.text || ko.label, owner: "", tracking: ko.tracking, horizonMonths: 18,
         });
       }
       (ko.waves || []).forEach((w) => {
@@ -3987,14 +4182,14 @@ function collectTrackers(trackId, trackName, data, directory) {
           if (q.tracking) {
             items.push({
               key: `quarter-${q.id}`, trackId, trackName, level: `KR-веха (${q.label})`,
-              title: q.milestone || tSync("без названия"), owner: ownerNameById(directory, q.objectiveOwner), tracking: q.tracking,
+              title: q.milestone || tSync("без названия"), owner: ownerNameById(directory, q.objectiveOwner), tracking: q.tracking, horizonMonths: 3,
             });
           }
           (q.monthlyKRs || []).forEach((m) => {
             if (m.tracking) {
               items.push({
                 key: `month-${m.id}`, trackId, trackName, level: `KR месяца (${m.label})`,
-                title: m.text || m.label, owner: "", tracking: m.tracking,
+                title: m.text || m.label, owner: "", tracking: m.tracking, horizonMonths: 1,
               });
             }
           });
@@ -4099,6 +4294,164 @@ function DashboardOutcome({ outcome, directory }) {
     >
       {outputs.map((ko) => <DashboardOutput key={ko.id} output={ko} />)}
     </DashboardNode>
+  );
+}
+
+const GANTT_DEPTH_LEVELS = [
+  { value: 0, key: "Главные цели" },
+  { value: 1, key: "KR Outcome" },
+  { value: 2, key: "KR Output" },
+  { value: 3, key: "Волны" },
+  { value: 4, key: "Кварталы" },
+  { value: 5, key: "Месяцы" },
+  { value: 6, key: "Задачи" },
+];
+
+function GanttChart() {
+  const t = useT();
+  const [tracksData, loaded] = useAllTracksData();
+  const [trackFilter, setTrackFilter] = useState("");
+  const [maxDepth, setMaxDepth] = useState(6);
+
+  if (!loaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+
+  let rows = [];
+  TRACKS.forEach((tr) => {
+    rows.push(...buildFullGanttRows(tr.id, tr.name, tracksData[tr.id], maxDepth));
+  });
+  const filtered = trackFilter ? rows.filter((r) => r.trackId === trackFilter) : rows;
+  filtered.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.depth - b.depth));
+
+  const depthControl = (
+    <div className="flex flex-wrap gap-1.5 justify-center">
+      {GANTT_DEPTH_LEVELS.map((lvl) => (
+        <button
+          key={lvl.value} onClick={() => setMaxDepth(lvl.value)}
+          className="text-xs px-2.5 py-1 rounded-full border"
+          style={maxDepth === lvl.value ? { background: "#171717", borderColor: "#171717", color: "#fff" } : { borderColor: "#e5e5e5", color: "#737373" }}
+        >
+          {t(lvl.key)}
+        </button>
+      ))}
+    </div>
+  );
+  const trackControl = (
+    <div className="flex flex-wrap gap-1.5 justify-center">
+      {TRACKS.map((tr) => {
+        const active = trackFilter === tr.id;
+        return (
+          <button
+            key={tr.id} onClick={() => setTrackFilter(active ? "" : tr.id)}
+            className="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 border"
+            style={active ? { background: TRACK_COLORS[tr.id] + "18", borderColor: TRACK_COLORS[tr.id], color: TRACK_COLORS[tr.id] } : { borderColor: "#e5e5e5", color: "#737373" }}
+          >
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TRACK_COLORS[tr.id] }} />
+            {tr.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  if (filtered.length === 0) {
+    return (
+      <div className="space-y-3">
+        {trackControl}
+        {depthControl}
+        <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
+          {t("Пока нет заполненных целей ни в одном треке.")}
+        </div>
+      </div>
+    );
+  }
+
+  const rangeStartRaw = filtered.reduce((min, r) => (r.start < min ? r.start : min), filtered[0].start);
+  const rangeEndRaw = filtered.reduce((max, r) => (r.end > max ? r.end : max), filtered[0].end);
+  const padStart = new Date(rangeStartRaw + "T00:00:00"); padStart.setDate(padStart.getDate() - 7);
+  const padEnd = new Date(rangeEndRaw + "T00:00:00"); padEnd.setDate(padEnd.getDate() + 7);
+  const rangeStart = padStart.toISOString().slice(0, 10);
+  const rangeEnd = padEnd.toISOString().slice(0, 10);
+  const totalDays = Math.max(1, daysBetweenISO(rangeStart, rangeEnd));
+  const todayPct = clamp01to100((daysBetweenISO(rangeStart, todayISO()) / totalDays) * 100);
+  const ticks = buildMonthTicks(rangeStart, rangeEnd).map((tk) => ({ ...tk, pct: clamp01to100((daysBetweenISO(rangeStart, tk.iso) / totalDays) * 100) }));
+
+  const Timeline = ({ children }) => (
+    <div className="relative flex-1" style={{ height: 24 }}>
+      {ticks.map((tk) => (
+        <div key={tk.iso} className="absolute top-0 bottom-0 border-l border-neutral-100" style={{ left: `${tk.pct}%` }} />
+      ))}
+      <div className="absolute top-0 bottom-0 border-l" style={{ left: `${todayPct}%`, borderColor: "#171717" }} />
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {trackControl}
+      {depthControl}
+
+      <div className="border border-neutral-200 rounded-xl overflow-hidden">
+        <div className="flex items-end border-b border-neutral-200 bg-neutral-50 px-2 pt-2 pb-1">
+          <div style={{ width: 230 }} className="shrink-0" />
+          <Timeline>
+            {ticks.map((tk) => (
+              <span key={tk.iso} className="absolute t10 text-neutral-400" style={{ left: `${tk.pct}%`, bottom: 2, transform: "translateX(2px)" }}>
+                {tk.label}
+              </span>
+            ))}
+          </Timeline>
+        </div>
+
+        <div className="divide-y divide-neutral-100 overflow-y-auto" style={{ maxHeight: "70vh" }}>
+          {filtered.map((r) => {
+            const barLeft = clamp01to100((daysBetweenISO(rangeStart, r.start) / totalDays) * 100);
+            const barRight = clamp01to100((daysBetweenISO(rangeStart, r.end) / totalDays) * 100);
+            const daysLeft = daysBetweenISO(todayISO(), r.end);
+            const barColor = r.tracked ? deadlineUrgency(daysLeft).color : TRACK_COLORS[r.trackId] + "70";
+            return (
+              <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50" style={{ paddingLeft: 8 + r.depth * 10, paddingTop: 5, paddingBottom: 5 }}>
+                <div style={{ width: 230 - r.depth * 10 }} className="shrink-0 pr-2 min-w-0">
+                  <div className="t10 text-neutral-400 flex items-center gap-1">
+                    {r.depth === 0 && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TRACK_COLORS[r.trackId] }} />}
+                    <span className="truncate">{r.depth === 0 ? r.trackName + " · " : ""}{t(r.levelKey)}{r.levelExtra ? ` ${r.levelExtra}` : ""}</span>
+                  </div>
+                  {r.title && (
+                    <div className="text-xs text-neutral-800 truncate">
+                      <TranslatedText text={r.title} />
+                    </div>
+                  )}
+                </div>
+                <Timeline>
+                  {r.isTask ? (
+                    <div
+                      className="absolute rounded-full"
+                      style={{ left: `calc(${barLeft}% - 4px)`, top: 6, width: 8, height: 8, background: barColor, transform: "rotate(45deg)" }}
+                      title={formatDateRu(r.start)}
+                    />
+                  ) : (
+                    <div
+                      className="absolute rounded-full"
+                      style={{ left: `${barLeft}%`, width: `${Math.max(0.6, barRight - barLeft)}%`, top: 5, height: 10, background: barColor }}
+                      title={`${formatDateRu(r.start)} — ${formatDateRu(r.end)}${r.tracked ? " · " + (daysLeft < 0 ? t("просрочено на") + " " + Math.abs(daysLeft) : t("осталось") + " " + daysLeft) + " " + t("дн.") : ""}`}
+                    />
+                  )}
+                </Timeline>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4 t11 text-neutral-400 justify-center flex-wrap">
+        <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#16a34a" }} />{t("В графике")}</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#ca8a04" }} />{t("Скоро")}</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#dc2626" }} />{t("Критично")} / {t("Просрочено")}</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#9ca3af" }} />{t("план (без трекинга)")}</span>
+        <span><span className="inline-block w-2 h-2.5 mr-1" style={{ borderLeft: "1px solid #171717" }} />{t("сегодня")}</span>
+      </div>
+    </div>
   );
 }
 
@@ -4875,6 +5228,14 @@ export default function App() {
           >
             <BarChart3 size={13} /> {t("Дашборд трекинга")}
           </button>
+          <button
+            onClick={() => setTrackId("gantt")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+              trackId === "gantt" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+            }`}
+          >
+            <CalendarRange size={13} /> {t("Гант")}
+          </button>
         </div>
 
         <AuthCtx.Provider value={authCtxValue}>
@@ -4887,6 +5248,8 @@ export default function App() {
             </LockOverlay>
           ) : trackId === "dashboard" ? (
             <TrackingDashboard key={`dashboard-${refreshKey}`} />
+          ) : trackId === "gantt" ? (
+            <GanttChart key={`gantt-${refreshKey}`} />
           ) : (
             <LockOverlay
               locked={!(authCtxValue.isAdmin || authCtxValue.myTrackId === trackId)}
