@@ -1,0 +1,4910 @@
+import React, { useState, useEffect, useCallback, useRef, useContext, createContext } from "react";
+import * as XLSX from "xlsx";
+import {
+  ChevronDown, ChevronRight, Plus, Trash2, Target, Flag,
+  Layers, CalendarRange, ListChecks, CheckCircle2, Circle, Sparkles, Users, Network, Briefcase, Search,
+  Download, Upload, Activity, BarChart3
+} from "lucide-react";
+
+// ---- Language toggle (RU / EN) — translates app UI chrome; user-entered content stays as typed ----
+const LanguageCtx = createContext("ru");
+function useLang() { return useContext(LanguageCtx); }
+function useT() {
+  const lang = useLang();
+  return (s) => (lang === "en" && EN_DICT[s]) ? EN_DICT[s] : s;
+}
+const EN_DICT = {
+  "OKR-конструктор трека": "OKR Tree Builder",
+  "Волна 1–6 мес. декомпозируется сразу. Волны 7–12 и 13–18 стартуют как цель-ориентир — раскладывайте их на контрольной точке, ближе к делу. У каждого Objective — владелец, у каждой задачи — ответственный из справочника.":
+    "Wave 1–6 mo. is broken down right away. Waves 7–12 and 13–18 start as a target direction — break them down at the checkpoint, closer to the time. Every Objective has an owner; every task has someone responsible from the directory.",
+  "Общее дерево OKR": "Combined OKR Tree",
+  "Проекты": "Projects",
+  "Дашборд трекинга": "Tracking Dashboard",
+
+  "Google Таблица": "Google Sheet",
+  "Войти через Google": "Sign in with Google",
+  "выйти": "sign out",
+  "Администратор": "Admin",
+  "Редактор": "Editor",
+  "Только просмотр": "View only",
+  "ID таблицы Google Sheets (из ссылки на таблицу)": "Google Sheets ID (from the sheet's link)",
+  "Подключить": "Connect",
+  "Подключение к таблице…": "Connecting to the sheet…",
+  "Без входа приложение работает локально в этом браузере (демо-режим). Со входом — данные общие для всей команды, через вашу Google Таблицу.":
+    "Without signing in, the app works locally in this browser (demo mode). Once signed in, data is shared with the whole team via your Google Sheet.",
+
+  "Скачать Excel": "Download Excel",
+  "Загрузить Excel": "Upload Excel",
+  "Готово — файл скачан.": "Done — file downloaded.",
+  "Ошибка экспорта: ": "Export error: ",
+  "Не удалось прочитать файл: ": "Failed to read the file: ",
+  "Ошибка импорта: ": "Import error: ",
+  "Заменить": "Replace",
+  "Отмена": "Cancel",
+  "Импортировано — данные обновлены.": "Imported — data updated.",
+  "Файл": "File",
+  "прочитан. Импорт заменит ВСЕ текущие данные (все треки, проекты, справочник, связи). Продолжить?":
+    "has been read. Importing will replace ALL current data (every track, project, directory entry and link). Continue?",
+
+  "Справочник: компания / отделы / функции": "Directory: company / departments / functions",
+  "Компания": "Company",
+  "Отдел": "Department",
+  "Функция": "Function",
+  "Название (например: Отдел маркетинга)": "Name (e.g. Marketing department)",
+  "Справочник пуст — добавьте функции, отделы или компанию": "The directory is empty — add functions, departments, or the company",
+  "Справочник редактирует администратор": "Only an admin can edit the directory",
+
+  "Загрузка…": "Loading…",
+  "Заполнено полей": "Fields filled",
+  "Миссия трека": "Track mission",
+  "Зачем трек существует": "Why the track exists",
+  "Главная цель": "Main goal",
+  "из": "of",
+  "Ultimate Objective (18 мес.)": "Ultimate Objective (18 mo.)",
+  "Одна из главных стратегических целей трека на 18 месяцев": "One of the track's main strategic goals over 18 months",
+  "Владелец Objective:": "Objective owner:",
+  "Без ответственного": "No owner",
+  "Добавить KR Outcome": "Add KR Outcome",
+  "Добавить главную цель": "Add main goal",
+  "Ключевой результат стратегической цели (18 мес.)": "Key result of the strategic goal (18 mo.)",
+  "Метрика": "Metric",
+  "Как измеряется (число, %, статус)": "How it's measured (number, %, status)",
+  "Стратегическая инициатива на 18 мес.": "Strategic initiative (18 mo.)",
+  "Программа работ, обеспечивающая KR Outcome": "Work program that delivers the KR Outcome",
+  "Objective": "Objective",
+  "Цель инициативы": "Goal of the initiative",
+  "Формулировка ключевого результата (output) на 18 мес.": "Wording of the key result (output) over 18 months",
+
+  "Трекинг KR (по неделям)": "KR tracking (weekly)",
+  "добавить трекинг прогресса": "add progress tracking",
+  "убрать трекинг": "remove tracking",
+  "Тип метрики": "Metric type",
+  "Накопительный (прирост)": "Cumulative (increment)",
+  "Уровень (срез)": "Level (snapshot)",
+  "Исходное": "Baseline",
+  "Целевое": "Target",
+  "добавить неделю": "add week",
+  "прирост за неделю": "increment this week",
+  "значение на конец недели": "value at week end",
+  "Факт": "Actual",
+  "Поставлено": "Set on",
+  "Срок": "Due",
+  "осталось": "left",
+  "дн.": "d.",
+  "просрочено на": "overdue by",
+  "Просрочено": "Overdue",
+  "Критично": "Critical",
+  "Скоро": "Soon",
+  "В графике": "On schedule",
+  "изменить срок": "change deadline",
+  "сброс": "reset",
+  "готово": "done",
+  "Уверенность 1-10": "Confidence 1-10",
+  "На треке": "On track",
+  "Есть риск": "At risk",
+  "Отстаёт": "Behind",
+
+  "Волна": "Wave",
+  "Objective на 6 мес.": "Objective (6 mo.)",
+  "Цель полугодия": "Half-year goal",
+  "Цель-ориентир (без декомпозиции)": "Target direction (not broken down)",
+  "Чего нужно достичь в этом полугодии — детали позже, на контрольной точке": "What needs to be achieved this half-year — details later, at the checkpoint",
+  "разложить волну": "break down wave",
+  "свернуть в цель": "collapse to target",
+
+  "Квартал": "Quarter",
+  "веха + инициатива 3 мес": "milestone + 3-mo initiative",
+  "KR-веха квартала": "Quarter KR milestone",
+  "KR-веха": "KR milestone",
+  "KR месяца": "Month KR",
+  "мес.": "mo.",
+  "Что считается достигнутым к концу квартала": "What counts as achieved by quarter end",
+  "Инициатива на 3 мес.": "3-month initiative",
+  "Операционный проект квартала": "The quarter's operating project",
+
+  "KR месяца — что должно быть достигнуто": "Month KR — what should be achieved",
+  "задача": "task",
+  "Задача": "Task",
+
+  "Единая цель Coral Club из": "Coral Club's unified goal across",
+  "треков": "tracks",
+  "уместить все треки": "fit all tracks",
+  "Конфликт": "Conflict",
+  "Дополнение": "Complement",
+  "Ожидание": "Waiting",
+  "Синхронизация": "Sync",
+  "Связи между треками": "Cross-track links",
+  "Пока ни одна волна ни в одном треке не заполнена": "No wave in any track has been filled in yet",
+  "Выбрано:": "Selected:",
+  "Кликните 🔗 у другого узла (цели, KR, задачи или проекта), чтобы связать.": "Click 🔗 on another node (goal, KR, task, or project) to link them.",
+  "отмена": "cancel",
+  "Тип связи между целями": "Link type between goals",
+  "пока нет заполненных целей": "no goals filled in yet",
+  "волны ещё не разложены": "waves not broken down yet",
+
+  "Проект/Инициатива": "Project/Initiative",
+  "Проекты / инициативы трека": "Track projects / initiatives",
+  "без названия": "untitled",
+  "старт": "starts",
+  "добавить проект": "add project",
+  "проектов": "projects",
+  "связаны с треками": "linked to tracks",
+  "Все дивизионы": "All divisions",
+  "Поиск по названию, функции, дивизиону…": "Search by name, function, division…",
+  "Ничего не найдено": "Nothing found",
+  "Описание проекта": "Project description",
+  "Кратко опишите проект…": "Briefly describe the project…",
+  "Каким трекам помогает": "Which tracks it supports",
+  "KR проекта": "Project KRs",
+  "добавить KR": "add KR",
+  "Удалить проект": "Delete project",
+  "Проекты редактирует администратор": "Only an admin can edit projects",
+
+  "KR под трекингом": "KRs tracked",
+  "средний прогресс": "average progress",
+  "на треке": "on track",
+  "отстают": "behind",
+  "Пока нет KR с включённым трекингом. Кнопка «добавить трекинг прогресса» доступна у KR Outcome, KR Output, KR-вехи квартала и KR месяца в любом треке.":
+    "No KRs are being tracked yet. The \u201cadd progress tracking\u201d button is available on any KR Outcome, KR Output, quarter KR milestone, or month KR in any track.",
+
+  "Войдите через Google, чтобы редактировать": "Sign in with Google to edit",
+  "Доступен только просмотр — это не ваш трек": "View only — this isn't your track",
+  "Ваш email не назначен ни на один трек — обратитесь к администратору": "Your email isn't assigned to any track — contact an admin",
+  "Не удалось войти: ": "Failed to sign in: ",
+  "Вошли, но не удалось получить email.": "Signed in, but couldn't retrieve the email.",
+  "Не удалось загрузить Google Sign-In (проверьте интернет-соединение).": "Failed to load Google Sign-In (check your internet connection).",
+  "Нет прав на изменение этих данных — обратитесь к администратору.": "You don't have permission to change this data — contact an admin.",
+  "Не удалось сохранить данные в Google Таблице.": "Failed to save data to the Google Sheet.",
+  "Не удалось подключиться к Google Таблице.": "Failed to connect to the Google Sheet.",
+  "Email": "Email",
+  "не найден на листе": "wasn't found on the sheet",
+  "обратитесь к администратору.": "contact an admin.",
+  "Связать с другой целью, KR, задачей или проектом": "Link to another goal, KR, task, or project",
+  "Активность по месяцам 2026": "2026 monthly activity",
+};
+
+// ---- Data translation (translates the user's own OKR text via a free public API) ----
+// Unlike EN_DICT above (static UI copy), this handles arbitrary text the user typed —
+// goal names, descriptions, tasks, etc. Only used in read-only views (Combined tree,
+// Dashboard, project cards); edit forms always show the real saved text, untranslated,
+// so nothing gets corrupted on save.
+const TRANSLATE_CACHE_KEY = "okr-translate-cache";
+function loadTranslateCache() {
+  try { return JSON.parse(localStorage.getItem(TRANSLATE_CACHE_KEY) || "{}"); } catch { return {}; }
+}
+const translateCache = loadTranslateCache();
+function saveTranslateCache() {
+  try { localStorage.setItem(TRANSLATE_CACHE_KEY, JSON.stringify(translateCache)); } catch {}
+}
+const pendingTranslations = new Map();
+
+async function translateViaApi(text) {
+  try {
+    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ru|en`);
+    const data = await res.json();
+    const out = data && data.responseData && data.responseData.translatedText;
+    return out && !/^PLEASE SELECT/i.test(out) ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function useDataT(text) {
+  const lang = useLang();
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    if (lang !== "en" || !text || !text.trim()) return;
+    if (translateCache[text] !== undefined) return;
+    if (pendingTranslations.has(text)) return;
+    const p = translateViaApi(text).then((result) => {
+      translateCache[text] = result || text;
+      saveTranslateCache();
+      pendingTranslations.delete(text);
+      bump((n) => n + 1);
+    });
+    pendingTranslations.set(text, p);
+  }, [text, lang]);
+
+  if (lang !== "en" || !text) return text;
+  return translateCache[text] !== undefined ? translateCache[text] : text;
+}
+
+function FieldPreview({ value }) {
+  const lang = useLang();
+  const preview = useDataT(value);
+  if (lang !== "en" || !value || !value.trim() || !preview || preview === value) return null;
+  return <div className="text-xs text-sky-600 italic mt-0.5">🌐 {preview}</div>;
+}
+
+function TranslatedText({ text }) {
+  return useDataT(text);
+}
+
+const TRACKS = [
+  { id: "health-os", name: "Health OS" },
+  { id: "growth-model", name: "GrowthModel" },
+  { id: "prime-growth", name: "PrimeGrowth" },
+  { id: "coral-evo", name: "CoralEVO" },
+  { id: "it-model", name: "ITModel" },
+];
+
+const TRACK_COLORS = {
+  "health-os": "#16a34a",
+  "growth-model": "#ca8a04",
+  "prime-growth": "#b45309",
+  "coral-evo": "#8b5cf6",
+  "it-model": "#f87171",
+};
+
+const MAX_PROJECT_TRACKS = 3;
+
+// ---- Google Sheets backend (shared, multi-user storage) ----
+const GOOGLE_CLIENT_ID = "337212671711-2vmhg1vjmgslatap1lc2hps1818952v0.apps.googleusercontent.com";
+const GOOGLE_SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
+const SHEET_ID_STORAGE_KEY = "okr-google-sheet-id";
+const APPDATA_TAB = "AppData";
+const USERS_TAB = "Пользователи";
+const APPDATA_KEYS = [
+  "okr-track:health-os", "okr-track:growth-model", "okr-track:prime-growth",
+  "okr-track:coral-evo", "okr-track:it-model", "okr-projects", "okr-directory", "okr-links",
+];
+const STATUS_COLORS = { G: "#16a34a", Y: "#ca8a04", R: "#dc2626", N: "#94a3b8" };
+
+const MAX_TASKS = 25;
+
+const PROJECTS_SEED = [
+  {
+    "id": "seed-0",
+    "division": "GLOBAL",
+    "function": "ДП",
+    "name": "Описание процессов",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-1",
+    "division": "GLOBAL",
+    "function": "ДП",
+    "name": "Стартовая программа для новичков",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "03.26",
+    "activity": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-2",
+    "division": "GLOBAL",
+    "function": "ДП",
+    "name": "Друзья Клуба",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": "02.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-3",
+    "division": "GLOBAL",
+    "function": "ДП",
+    "name": "Быстрый старт",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": "06.26",
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-4",
+    "division": "GLOBAL",
+    "function": "ДП",
+    "name": "Программы лояльности",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-5",
+    "division": "GLOBAL",
+    "function": "ДРД",
+    "name": "Digital kit",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-6",
+    "division": "GLOBAL",
+    "function": "CX",
+    "name": "CRM Bitrix (IP телефония для КЦ)",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-7",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Refiner",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "07.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-8",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Промокоды",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-9",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Адреса на сайте",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-10",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Курьерские службы",
+    "status": "Откл. >10%",
+    "statusCode": "R",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-11",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Верификация",
+    "status": "Откл. >10%",
+    "statusCode": "R",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-12",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "База знаний",
+    "status": "Откл. >10%",
+    "statusCode": "R",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-13",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Упрощенная регистрация",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-14",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Статусная модель заказов",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-15",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "ЛК Дистрибьютора — Back office",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": "06.26",
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-16",
+    "division": "GLOBAL",
+    "function": "Ecom",
+    "name": "Навигация по продуктам",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-17",
+    "division": "GLOBAL",
+    "function": "GM",
+    "name": "Пульс — Apache Superset (BI)",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "03.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-18",
+    "division": "GLOBAL",
+    "function": "Маркетинг",
+    "name": "AI ассистент для ЧК и Дистрибьюторов",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-19",
+    "division": "GLOBAL",
+    "function": "HR",
+    "name": "Бизнес процессы и заявки",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-20",
+    "division": "GLOBAL",
+    "function": "HR",
+    "name": "Инструменты для менеджеров (дашборды)",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-21",
+    "division": "GLOBAL",
+    "function": "HR",
+    "name": "Обучение сотрудников — новая платформа",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-22",
+    "division": "GLOBAL",
+    "function": "HR",
+    "name": "ИИ-ассистент Коралина",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-23",
+    "division": "GLOBAL",
+    "function": "Training",
+    "name": "Бизнес обучение + CBA (LMS)",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "04.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-24",
+    "division": "GLOBAL",
+    "function": "Events",
+    "name": "Event — замена платформ",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-25",
+    "division": "GLOBAL",
+    "function": "Finance",
+    "name": "Внедрение 1С ERP",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": "08.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-26",
+    "division": "GLOBAL",
+    "function": "Finance",
+    "name": "Интеграция с локальными бух. системами",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-27",
+    "division": "GLOBAL",
+    "function": "Finance",
+    "name": "Фискализация по всем рынкам",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-28",
+    "division": "GLOBAL",
+    "function": "Logistics",
+    "name": "Штрихкодирование",
+    "status": "Откл. >10%",
+    "statusCode": "R",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-29",
+    "division": "GLOBAL",
+    "function": "Marketing",
+    "name": "Эффективная коммуникация (смс, имейл)",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-30",
+    "division": "GLOBAL",
+    "function": "Marketing",
+    "name": "Контент платформа для трафика",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-31",
+    "division": "GLOBAL",
+    "function": "Marketing",
+    "name": "Подписка",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-32",
+    "division": "GLOBAL",
+    "function": "Operations",
+    "name": "РЦ — внедрение новых систем (1С)",
+    "status": "—",
+    "statusCode": "N",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-33",
+    "division": "GLOBAL",
+    "function": "Planning",
+    "name": "Региональные скидки",
+    "status": "Откл. >10%",
+    "statusCode": "R",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-34",
+    "division": "GLOBAL",
+    "function": "Logistics",
+    "name": "Сервис логистики",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": "04.26",
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-35",
+    "division": "РФ+РБ",
+    "function": "HR",
+    "name": "КЭДО",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-36",
+    "division": "РФ+РБ",
+    "function": "Operations",
+    "name": "Бизнес модель РФ (франчайзи, портал)",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-37",
+    "division": "РФ+РБ",
+    "function": "Operations",
+    "name": "Поставки в РФ, включая маркировку",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-38",
+    "division": "РФ+РБ",
+    "function": "Operations",
+    "name": "Честный знак",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-39",
+    "division": "РФ+РБ",
+    "function": "Operations",
+    "name": "Производство паучей",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-40",
+    "division": "РФ+РБ",
+    "function": "Finance",
+    "name": "ЭДО",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-41",
+    "division": "РФ+РБ",
+    "function": "Operations",
+    "name": "Транспортные документы ЭДО",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-42",
+    "division": "Азия",
+    "function": "Ecom",
+    "name": "Верификация Дистрибьюторов",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-43",
+    "division": "Азия",
+    "function": "Operations",
+    "name": "Маркировка Казахстан",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-44",
+    "division": "Азия",
+    "function": "Operations",
+    "name": "Маркировка Таджикистан / Армения",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-45",
+    "division": "Азия",
+    "function": "ДПД",
+    "name": "Азербайджан",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "07.26",
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-46",
+    "division": "Америка+Канада",
+    "function": "ДПД",
+    "name": "Изменение маркетинг плана",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-47",
+    "division": "Америка+Канада",
+    "function": "ДПД",
+    "name": "Расширение географии — Пуэрто-Рико",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-48",
+    "division": "Америка+Канада",
+    "function": "ДПД",
+    "name": "Расширение географии — Мексика",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-49",
+    "division": "Европа-Север",
+    "function": "Operations",
+    "name": "3PL в Ирландии",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-50",
+    "division": "Европа-Север",
+    "function": "Operations",
+    "name": "DDP для Великобритании",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-51",
+    "division": "Европа-Север",
+    "function": "Finance",
+    "name": "Норвегия — переход на Евро",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-52",
+    "division": "Европа-Центр",
+    "function": "ДПД",
+    "name": "Румыния",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-53",
+    "division": "Европа-Центр",
+    "function": "ДПД",
+    "name": "Подписка",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "07.26",
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-54",
+    "division": "Европа-Запад",
+    "function": "Operations",
+    "name": "Склад в Германии",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "11.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-55",
+    "division": "Европа-Запад",
+    "function": "Operations",
+    "name": "DDP для доставки из Германии",
+    "status": "Откл. до 10%",
+    "statusCode": "Y",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-56",
+    "division": "Европа-Юг",
+    "function": "Finance",
+    "name": "Испания — документооборот с налоговой",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "10.26",
+    "activity": [
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-57",
+    "division": "Европа-Юг",
+    "function": "Finance",
+    "name": "Болгария — Евро",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": "08.26",
+    "activity": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  },
+  {
+    "id": "seed-58",
+    "division": "Back office",
+    "function": "Finance",
+    "name": "Автоматизация учета рабочего времени",
+    "status": "В плане",
+    "statusCode": "G",
+    "launchMonth": null,
+    "activity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "description": "",
+    "krs": [],
+    "trackIds": []
+  }
+];
+
+
+const newId = () => `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+function createTask() {
+  return { id: newId(), text: "", ownerId: "" };
+}
+function createMonthlyKR(label) {
+  return { id: newId(), label, text: "", tracking: null, tasks: [createTask(), createTask()] };
+}
+function createQuarter(label, monthLabels) {
+  return {
+    id: newId(),
+    label,
+    milestone: "",
+    initiative3mo: "",
+    objective: "",
+    objectiveOwner: "",
+    tracking: null,
+    monthlyKRs: monthLabels.map(createMonthlyKR),
+  };
+}
+function createWave(periodLabel, decomposed) {
+  return {
+    id: newId(),
+    periodLabel,
+    status: decomposed ? "decomposed" : "target",
+    targetText: "",
+    objective6mo: "",
+    objective6moOwner: "",
+    quarters: [
+      createQuarter("1–3 мес", ["Мес. 1", "Мес. 2", "Мес. 3"]),
+      createQuarter("4–6 мес", ["Мес. 4", "Мес. 5", "Мес. 6"]),
+    ],
+  };
+}
+function createKROutput(n) {
+  return {
+    id: newId(),
+    label: `KR_${n} OUTPUT`,
+    text: "",
+    tracking: null,
+    waves: [
+      createWave("1–6 мес из 18", true),
+      createWave("7–12 мес из 18", false),
+      createWave("13–18 мес из 18", false),
+    ],
+  };
+}
+function createKROutcome(n) {
+  return {
+    id: newId(),
+    label: `KR Outcome ${n}`,
+    text: "",
+    metric: "",
+    initiativeText: "",
+    objectiveText: "",
+    objectiveOwner: "",
+    tracking: null,
+    krOutputs: [createKROutput(1), createKROutput(2), createKROutput(3)],
+  };
+}
+const MAX_ULTIMATE_OBJECTIVES = 2;
+const MAX_KR_OUTCOMES = 4;
+function createUltimateObjective(n) {
+  return { id: newId(), label: `Главная цель ${n}`, text: "", owner: "", krOutcomes: [] };
+}
+function migrateTrackData(data) {
+  if (!data) return createTrackData();
+  if (Array.isArray(data.ultimateObjectives)) return data;
+  // legacy shape: single ultimateObjective/Owner + top-level krOutcomes
+  return {
+    mission: data.mission || "",
+    ultimateObjectives: [{
+      id: newId(),
+      label: "Главная цель 1",
+      text: data.ultimateObjective || "",
+      owner: data.ultimateObjectiveOwner || "",
+      krOutcomes: data.krOutcomes || [],
+    }],
+  };
+}
+
+function createTrackData() {
+  return { mission: "", ultimateObjectives: [createUltimateObjective(1)] };
+}
+
+function createTrackerWeek(n) {
+  return { id: newId(), label: `Неделя ${n}`, value: 0, confidence: 5 };
+}
+function createTracker() {
+  return { measureType: "cumulative", target: 0, baseline: 0, weeks: [], startDate: todayISO(), deadlineOverride: null };
+}
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+function addMonthsISO(dateStr, months) {
+  const d = new Date((dateStr || todayISO()) + "T00:00:00");
+  d.setMonth(d.getMonth() + months);
+  return d.toISOString().slice(0, 10);
+}
+function daysBetweenISO(fromISO, toISO) {
+  const a = new Date(fromISO + "T00:00:00");
+  const b = new Date(toISO + "T00:00:00");
+  return Math.round((b - a) / 86400000);
+}
+function formatDateRu(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+function deadlineUrgency(daysLeft) {
+  if (daysLeft < 0) return { label: "Просрочено", color: "#dc2626" };
+  if (daysLeft <= 14) return { label: "Критично", color: "#dc2626" };
+  if (daysLeft <= 45) return { label: "Скоро", color: "#ca8a04" };
+  return { label: "В графике", color: "#16a34a" };
+}
+function computeTracking(t) {
+  if (!t) return { fact: 0, pct: 0 };
+  const weeks = t.weeks || [];
+  const base = Number(t.baseline) || 0;
+  const target = Number(t.target) || 0;
+  const denom = target - base;
+  const sumDelta = weeks.reduce((s, w) => s + (Number(w.value) || 0), 0);
+  let fact, pct;
+  if (t.measureType === "level") {
+    fact = weeks.length ? Number(weeks[weeks.length - 1].value) || 0 : base;
+    pct = denom === 0 ? (fact >= target ? 1 : 0) : (fact - base) / denom;
+  } else {
+    fact = sumDelta + base;
+    pct = denom === 0 ? (sumDelta >= denom ? 1 : 0) : sumDelta / denom;
+  }
+  return { fact, pct };
+}
+function trackingStatus(pct) {
+  if (pct >= 0.9) return { label: "На треке", color: "#16a34a" };
+  if (pct >= 0.5) return { label: "Есть риск", color: "#ca8a04" };
+  return { label: "Отстаёт", color: "#dc2626" };
+}
+
+function normKey(s) {
+  return String(s || "").trim().toLowerCase();
+}
+function ownerNameById(directory, id) {
+  if (!id) return "";
+  const d = (directory || []).find((d) => d.id === id);
+  return d ? d.name : "";
+}
+function resolveOwnerId(name, directory, extra) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return "";
+  const found =
+    (directory || []).find((d) => normKey(d.name) === normKey(trimmed)) ||
+    extra.find((d) => normKey(d.name) === normKey(trimmed));
+  if (found) return found.id;
+  const created = { id: newId(), name: trimmed, type: "function" };
+  extra.push(created);
+  return created.id;
+}
+function firstNonEmpty(rows, field) {
+  for (const r of rows) {
+    const v = r[field];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return String(v);
+  }
+  return "";
+}
+function groupByNum(rows, field) {
+  const map = new Map();
+  rows.forEach((r) => {
+    const n = Number(r[field]);
+    if (!n) return;
+    if (!map.has(n)) map.set(n, []);
+    map.get(n).push(r);
+  });
+  return map;
+}
+
+// ---- Export: build human-fillable rows (names/numbers, no opaque IDs) ----
+
+function buildTrackRow(trackName, data) {
+  return { "Трек": trackName, "Миссия": data.mission };
+}
+
+function buildStructureRows(trackName, data, directory) {
+  const rows = [];
+  (data.ultimateObjectives || []).forEach((uo, ui) => {
+    (uo.krOutcomes || []).forEach((o, oi) => {
+      (o.krOutputs || []).forEach((ko, ki) => {
+        (ko.waves || []).forEach((w, wi) => {
+          const base = {
+            "Трек": trackName,
+            "Главная цель №": ui + 1,
+            "Ultimate Objective": uo.text,
+            "Владелец Ultimate Objective": ownerNameById(directory, uo.owner),
+            "KR Outcome №": oi + 1,
+            "KR Outcome": o.text,
+            "Метрика": o.metric,
+            "Стратегическая инициатива": o.initiativeText,
+            "Objective инициативы": o.objectiveText,
+            "Владелец Objective инициативы": ownerNameById(directory, o.objectiveOwner),
+            "KR Output №": ki + 1,
+            "KR Output": ko.text,
+            "Волна №": wi + 1,
+          };
+          if (w.status === "decomposed") {
+            w.quarters.forEach((q, qi) => {
+              rows.push({
+                ...base,
+                "Цель-ориентир волны": "",
+                "Objective на 6 мес.": w.objective6mo,
+                "Владелец Objective 6 мес.": ownerNameById(directory, w.objective6moOwner),
+                "Квартал (1-3 / 4-6)": qi === 0 ? "1-3" : "4-6",
+                "KR-веха квартала": q.milestone,
+                "Инициатива на 3 мес.": q.initiative3mo,
+                "Objective квартала": q.objective,
+                "Владелец Objective квартала": ownerNameById(directory, q.objectiveOwner),
+              });
+            });
+          } else {
+            rows.push({
+              ...base,
+              "Цель-ориентир волны": w.targetText,
+              "Objective на 6 мес.": "", "Владелец Objective 6 мес.": "",
+              "Квартал (1-3 / 4-6)": "", "KR-веха квартала": "", "Инициатива на 3 мес.": "",
+              "Objective квартала": "", "Владелец Objective квартала": "",
+            });
+          }
+        });
+      });
+    });
+  });
+  return rows;
+}
+
+function buildTaskRows(trackName, data, directory) {
+  const rows = [];
+  (data.ultimateObjectives || []).forEach((uo, ui) => {
+    (uo.krOutcomes || []).forEach((o, oi) => {
+      (o.krOutputs || []).forEach((ko, ki) => {
+        (ko.waves || []).forEach((w, wi) => {
+          if (w.status !== "decomposed") return;
+          w.quarters.forEach((q, qi) => {
+            q.monthlyKRs.forEach((m, mi) => {
+              const monthNo = qi * 3 + mi + 1;
+              const base = {
+                "Трек": trackName, "Главная цель №": ui + 1, "KR Outcome №": oi + 1,
+                "KR Output №": ki + 1, "Волна №": wi + 1, "Месяц №": monthNo,
+              };
+              const filledTasks = m.tasks.filter((t) => t.text);
+              if (!m.text && filledTasks.length === 0) return;
+              if (filledTasks.length === 0) {
+                rows.push({ ...base, "KR месяца": m.text, "Задача": "", "Ответственный": "" });
+              } else {
+                filledTasks.forEach((t) => {
+                  rows.push({ ...base, "KR месяца": m.text, "Задача": t.text, "Ответственный": ownerNameById(directory, t.ownerId) });
+                });
+              }
+            });
+          });
+        });
+      });
+    });
+  });
+  return rows;
+}
+
+const STATUS_TEXT_TO_CODE = { "В плане": "G", "Откл. до 10%": "Y", "Откл. >10%": "R", "—": "N" };
+
+function buildProjectRows(projects) {
+  return projects.map((p) => ({
+    "Проект": p.name, "Дивизион": p.division, "Функция": p.function, "Статус": p.status,
+    "Месяц запуска": p.launchMonth || "", "Описание": p.description,
+    "Треки (через ;)": p.trackIds.map((id) => (TRACKS.find((t) => t.id === id) || {}).name || id).join("; "),
+    "Активность мес.1-12 (через запятую)": p.activity.join(","),
+  }));
+}
+function buildProjectKrRows(projects) {
+  const rows = [];
+  projects.forEach((p) => p.krs.forEach((k) => { if (k.text) rows.push({ "Проект": p.name, "KR": k.text }); }));
+  return rows;
+}
+function buildDirectoryRows(directory) {
+  return directory.map((d) => ({ "Название": d.name, "Тип": TYPE_LABEL[d.type] || d.type }));
+}
+function buildLinkRows(links) {
+  return links.map((l) => {
+    const cfg = LINK_TYPES.find((t) => t.key === l.type);
+    return {
+      "ID": l.id, "Тип": cfg ? cfg.label : l.type,
+      "Трек А": l.aTrackName, "Узел А": l.aLabel, "ID узла А": l.aItemId,
+      "Трек Б": l.bTrackName, "Узел Б": l.bLabel, "ID узла Б": l.bItemId,
+    };
+  });
+}
+
+function buildInstructionsRows() {
+  return [
+    { "Раздел": "Общее", "Пояснение": "Не переименовывайте листы и заголовки колонок — импорт ищет их по названию." },
+    { "Раздел": "Общее", "Пояснение": "Пустая колонка = пусто в приложении. Не нужно ничего вписывать, если поле не заполнено." },
+    { "Раздел": "1. Треки", "Пояснение": "Ровно 5 строк — по одной на трек. Названия треков менять нельзя, они должны совпадать с приложением. Здесь — только миссия." },
+    { "Раздел": "2. OKR - Структура", "Пояснение": "У трека может быть до 2 главных целей (Ultimate Objective). «Главная цель №» — 1 или 2, у каждой — свой текст, владелец и своя нумерация KR Outcome (начинается заново с 1 для каждой цели, максимум 4 KR Outcome на одну главную цель)." },
+    { "Раздел": "2. OKR - Структура", "Пояснение": "Одна строка = один квартал (или одна строка на волну, если волна ещё НЕ разложена)." },
+    { "Раздел": "2. OKR - Структура", "Пояснение": "«KR Outcome №» и «KR Output №» — нумеруйте с 1 подряд внутри своей главной цели, без пропусков. Новые добавляйте В КОНЕЦ списка — так сохранятся уже созданные связи 🔗." },
+    { "Раздел": "2. OKR - Структура", "Пояснение": "«Волна №» всегда 1, 2 или 3 (1 = 1–6 мес, 2 = 7–12 мес, 3 = 13–18 мес из 18)." },
+    { "Раздел": "2. OKR - Структура", "Пояснение": "Если волна ещё НЕ разложена — заполните только «Цель-ориентир волны» и оставьте «Квартал» пустым (1 строка на волну)." },
+    { "Раздел": "2. OKR - Структура", "Пояснение": "Если волна разложена — сделайте 2 строки (Квартал = 1-3 и Квартал = 4-6), «Цель-ориентир волны» не нужен." },
+    { "Раздел": "3. OKR - Задачи", "Пояснение": "Одна строка = одна задача. «Месяц №» — абсолютный номер месяца волны, от 1 до 6 (не 1–3 внутри квартала)." },
+    { "Раздел": "3. OKR - Задачи", "Пояснение": "«KR месяца» можно повторять на каждой строке задачи этого месяца — берётся первое непустое значение." },
+    { "Раздел": "3. OKR - Задачи", "Пояснение": "Если хотите указать только KR месяца без конкретных задач — сделайте одну строку с пустой «Задача»." },
+    { "Раздел": "Владельцы", "Пояснение": "Впишите имя/название прямо текстом (например «Отдел маркетинга»). Если такого нет в справочнике — он будет создан автоматически при импорте." },
+    { "Раздел": "4-5. Проекты", "Пояснение": "«Треки (через ;)» — названия треков через точку с запятой, не больше 3. KR проекта — на отдельном листе «5. KR проектов», по одной строке на KR, со ссылкой на «Проект» по названию." },
+    { "Раздел": "6. Справочник", "Пояснение": "Компания / Отдел / Функция — список организаций, которые можно назначать владельцами и ответственными." },
+    { "Раздел": "7. Связи", "Пояснение": "Служебный лист (связи между целями/проектами с типом конфликт/дополнение/ожидание/синхронизация). Создавайте и редактируйте связи в самом приложении — этот лист лучше не заполнять вручную." },
+  ];
+}
+
+// ---- Import: rebuild nested data from the sheets, preserving IDs by position so existing 🔗-links survive edits ----
+
+function rebuildTrackFromSheets(trackName, trackRow, structureRows, taskRows, existing, directory, newDirEntries) {
+  const data = createTrackData();
+  if (trackRow) {
+    data.mission = trackRow["Миссия"] || "";
+  }
+
+  const myStruct = structureRows.filter((r) => normKey(r["Трек"]) === normKey(trackName));
+  const myTasks = taskRows.filter((r) => normKey(r["Трек"]) === normKey(trackName));
+
+  const uoGroups = groupByNum(myStruct, "Главная цель №");
+  const uoNos = Array.from(uoGroups.keys()).sort((a, b) => a - b).slice(0, MAX_ULTIMATE_OBJECTIVES);
+  const finalUoNos = uoNos.length ? uoNos : [1];
+
+  data.ultimateObjectives = finalUoNos.map((uoNo, ui) => {
+    const uoRows = uoGroups.get(uoNo) || [];
+    const existingUo = (existing.ultimateObjectives || [])[ui];
+    const uoTasks = myTasks.filter((r) => (Number(r["Главная цель №"]) || 1) === uoNo);
+
+    const outcomeGroups = groupByNum(uoRows, "KR Outcome №");
+    const outcomeNos = Array.from(outcomeGroups.keys()).sort((a, b) => a - b).slice(0, MAX_KR_OUTCOMES);
+
+    return {
+      id: existingUo ? existingUo.id : newId(),
+      label: existingUo ? existingUo.label : `Главная цель ${ui + 1}`,
+      text: firstNonEmpty(uoRows, "Ultimate Objective"),
+      owner: resolveOwnerId(firstNonEmpty(uoRows, "Владелец Ultimate Objective"), directory, newDirEntries),
+      krOutcomes: outcomeNos.map((oNo, oi) => {
+        const oRows = outcomeGroups.get(oNo);
+        const existingOutcome = existingUo && existingUo.krOutcomes[oi];
+        const outputGroups = groupByNum(oRows, "KR Output №");
+        const outputNos = Array.from(outputGroups.keys()).sort((a, b) => a - b);
+
+        return {
+          id: existingOutcome ? existingOutcome.id : newId(),
+          label: existingOutcome ? existingOutcome.label : `KR Outcome ${oi + 1}`,
+          text: firstNonEmpty(oRows, "KR Outcome"),
+          metric: firstNonEmpty(oRows, "Метрика"),
+          initiativeText: firstNonEmpty(oRows, "Стратегическая инициатива"),
+          objectiveText: firstNonEmpty(oRows, "Objective инициативы"),
+          objectiveOwner: resolveOwnerId(firstNonEmpty(oRows, "Владелец Objective инициативы"), directory, newDirEntries),
+          krOutputs: outputNos.map((koNo, ki) => {
+            const koRows = outputGroups.get(koNo);
+            const existingOutput = existingOutcome && existingOutcome.krOutputs[ki];
+            const waveGroups = groupByNum(koRows, "Волна №");
+
+            const waves = [0, 1, 2].map((wi) => {
+              const wRows = waveGroups.get(wi + 1) || [];
+              const existingWave = existingOutput && existingOutput.waves[wi];
+              const periodLabel = wi === 0 ? "1–6 мес из 18" : wi === 1 ? "7–12 мес из 18" : "13–18 мес из 18";
+              const hasQuarterData = wRows.some((r) => String(r["Квартал (1-3 / 4-6)"] || "").trim() !== "");
+              const qLabels = ["1–3 мес", "4–6 мес"];
+              const monthLabelsFor = [["Мес. 1", "Мес. 2", "Мес. 3"], ["Мес. 4", "Мес. 5", "Мес. 6"]];
+
+              const quarters = [0, 1].map((qi) => {
+                const qKey = qi === 0 ? "1-3" : "4-6";
+                const qRow = wRows.find((r) => normKey(r["Квартал (1-3 / 4-6)"]) === qKey);
+                const existingQuarter = existingWave && existingWave.quarters[qi];
+
+                const monthlyKRs = [0, 1, 2].map((mi) => {
+                  const absMonth = qi * 3 + mi + 1;
+                  const monthTaskRows = uoTasks.filter(
+                    (r) => Number(r["KR Outcome №"]) === oNo && Number(r["KR Output №"]) === koNo &&
+                      Number(r["Волна №"]) === wi + 1 && Number(r["Месяц №"]) === absMonth
+                  );
+                  const existingMonth = existingQuarter && existingQuarter.monthlyKRs[mi];
+                  const taskEntries = monthTaskRows.filter((r) => String(r["Задача"] || "").trim() !== "");
+                  return {
+                    id: existingMonth ? existingMonth.id : newId(),
+                    label: monthLabelsFor[qi][mi],
+                    text: firstNonEmpty(monthTaskRows, "KR месяца"),
+                    tasks: taskEntries.map((r, ti) => {
+                      const existingTask = existingMonth && existingMonth.tasks[ti];
+                      return {
+                        id: existingTask ? existingTask.id : newId(),
+                        text: r["Задача"] || "",
+                        ownerId: resolveOwnerId(r["Ответственный"], directory, newDirEntries),
+                      };
+                    }),
+                  };
+                });
+
+                return {
+                  id: existingQuarter ? existingQuarter.id : newId(),
+                  label: qLabels[qi],
+                  milestone: qRow ? (qRow["KR-веха квартала"] || "") : "",
+                  initiative3mo: qRow ? (qRow["Инициатива на 3 мес."] || "") : "",
+                  objective: qRow ? (qRow["Objective квартала"] || "") : "",
+                  objectiveOwner: resolveOwnerId(qRow ? qRow["Владелец Objective квартала"] : "", directory, newDirEntries),
+                  monthlyKRs,
+                };
+              });
+
+              return {
+                id: existingWave ? existingWave.id : newId(),
+                periodLabel,
+                status: hasQuarterData ? "decomposed" : "target",
+                targetText: firstNonEmpty(wRows, "Цель-ориентир волны"),
+                objective6mo: firstNonEmpty(wRows, "Objective на 6 мес."),
+                objective6moOwner: resolveOwnerId(firstNonEmpty(wRows, "Владелец Objective 6 мес."), directory, newDirEntries),
+                quarters,
+              };
+            });
+
+            return {
+              id: existingOutput ? existingOutput.id : newId(),
+              label: existingOutput ? existingOutput.label : `KR_${ki + 1} OUTPUT`,
+              text: firstNonEmpty(koRows, "KR Output"),
+              waves,
+            };
+          }),
+        };
+      }),
+    };
+  });
+
+  return data;
+}
+
+function rebuildProjectsFromSheets(projectRows, krRows, existingProjects) {
+  const existingByName = new Map((existingProjects || []).map((p) => [normKey(p.name), p]));
+  return projectRows
+    .filter((r) => String(r["Проект"] || "").trim())
+    .map((r) => {
+      const name = String(r["Проект"]).trim();
+      const existing = existingByName.get(normKey(name));
+      const trackNames = String(r["Треки (через ;)"] || "").split(/[;,]/).map((s) => s.trim()).filter(Boolean);
+      const trackIds = trackNames
+        .map((n) => { const t = TRACKS.find((t) => normKey(t.name) === normKey(n) || t.id === n); return t ? t.id : null; })
+        .filter(Boolean)
+        .slice(0, MAX_PROJECT_TRACKS);
+      const activity = String(r["Активность мес.1-12 (через запятую)"] || "").split(",").map((x) => parseInt(x, 10) || 0);
+      while (activity.length < 12) activity.push(0);
+      return {
+        id: existing ? existing.id : newId(),
+        name, division: r["Дивизион"] || "", function: r["Функция"] || "",
+        status: r["Статус"] || "", statusCode: STATUS_TEXT_TO_CODE[r["Статус"]] || (existing ? existing.statusCode : "G"),
+        launchMonth: r["Месяц запуска"] ? String(r["Месяц запуска"]) : null,
+        description: r["Описание"] || "", trackIds, activity: activity.slice(0, 12),
+        krs: krRows.filter((k) => normKey(k["Проект"]) === normKey(name)).map((k, ki) => {
+          const existingKr = existing && existing.krs[ki];
+          return { id: existingKr ? existingKr.id : newId(), text: k["KR"] || "" };
+        }),
+      };
+    });
+}
+
+function rebuildDirectoryFromSheet(dirRows, existing) {
+  const TYPE_FROM_LABEL = { "Компания": "company", "Отдел": "department", "Функция": "function" };
+  const existingByName = new Map((existing || []).map((d) => [normKey(d.name), d]));
+  return dirRows
+    .filter((r) => String(r["Название"] || "").trim())
+    .map((r) => {
+      const name = String(r["Название"]).trim();
+      const existingEntry = existingByName.get(normKey(name));
+      return { id: existingEntry ? existingEntry.id : newId(), name, type: TYPE_FROM_LABEL[String(r["Тип"] || "").trim()] || "function" };
+    });
+}
+
+function rebuildLinksFromSheet(rows) {
+  const LABEL_TO_KEY = Object.fromEntries(LINK_TYPES.map((t) => [t.label, t.key]));
+  return rows
+    .filter((r) => r["ID узла А"] && r["ID узла Б"])
+    .map((r) => ({
+      id: String(r["ID"] || newId()),
+      type: LABEL_TO_KEY[r["Тип"]] || "sync",
+      aTrackId: (TRACKS.find((t) => normKey(t.name) === normKey(r["Трек А"])) || {}).id || "",
+      aTrackName: r["Трек А"] || "", aItemId: String(r["ID узла А"]), aLabel: r["Узел А"] || "",
+      bTrackId: (TRACKS.find((t) => normKey(t.name) === normKey(r["Трек Б"])) || {}).id || "",
+      bTrackName: r["Трек Б"] || "", bItemId: String(r["ID узла Б"]), bLabel: r["Узел Б"] || "",
+    }));
+}
+
+
+const UpdateCtx = createContext(() => {});
+const DirectoryCtx = createContext([]);
+function useUpdate() { return useContext(UpdateCtx); }
+function useDirectoryList() { return useContext(DirectoryCtx); }
+
+function countFilled(track) {
+  let total = 1, filled = 0;
+  if (track.mission) filled++;
+  (track.ultimateObjectives || []).forEach((uo) => {
+    total += 2;
+    if (uo.text) filled++;
+    if (uo.owner) filled++;
+    uo.krOutcomes.forEach((o) => {
+      total += 5;
+      if (o.text) filled++;
+      if (o.metric) filled++;
+      if (o.initiativeText) filled++;
+      if (o.objectiveText) filled++;
+      if (o.objectiveOwner) filled++;
+      o.krOutputs.forEach((ko) => {
+        total += 1;
+        if (ko.text) filled++;
+        ko.waves.forEach((w) => {
+          if (w.status === "target") {
+            total += 1;
+            if (w.targetText) filled++;
+          } else {
+            total += 2;
+            if (w.objective6mo) filled++;
+            if (w.objective6moOwner) filled++;
+            w.quarters.forEach((q) => {
+              total += 4;
+              if (q.milestone) filled++;
+              if (q.initiative3mo) filled++;
+              if (q.objective) filled++;
+              if (q.objectiveOwner) filled++;
+              q.monthlyKRs.forEach((m) => {
+                total += 1;
+                if (m.text) filled++;
+                m.tasks.forEach((t) => {
+                  total += 2;
+                  if (t.text) filled++;
+                  if (t.ownerId) filled++;
+                });
+              });
+            });
+          }
+        });
+      });
+    });
+  });
+  return { filled, total };
+}
+
+function monthHasContent(m) {
+  return !!m.text || m.tasks.some((t) => !!t.text);
+}
+function quarterHasContent(q) {
+  return !!q.milestone || !!q.initiative3mo || !!q.objective || q.monthlyKRs.some(monthHasContent);
+}
+function waveHasContent(w) {
+  return w.status === "decomposed" && (!!w.objective6mo || w.quarters.some(quarterHasContent));
+}
+function outputHasContent(ko) {
+  return !!ko.text || ko.waves.some(waveHasContent);
+}
+function outcomeHasContent(o) {
+  return !!o.text || !!o.metric || !!o.initiativeText || !!o.objectiveText || o.krOutputs.some(outputHasContent);
+}
+function ultimateObjectiveHasContent(uo) {
+  return !!uo.text || uo.krOutcomes.some(outcomeHasContent);
+}
+function trackHasContent(t) {
+  return !!t.mission || (t.ultimateObjectives || []).some(ultimateObjectiveHasContent);
+}
+function ownerName(directory, id) {
+  if (!id) return null;
+  const found = directory.find((d) => d.id === id);
+  return found ? found.name : null;
+}
+
+const LINK_TYPES = [
+  { key: "conflict", label: "Конфликт", color: "#dc2626", icon: "⚔" },
+  { key: "complement", label: "Дополнение", color: "#15803d", icon: "➕" },
+  { key: "waiting", label: "Ожидание", color: "#a16207", icon: "⏳" },
+  { key: "sync", label: "Синхронизация", color: "#0369a1", icon: "⇄" },
+];
+
+function truncate(s, n = 64) {
+  if (!s) return s;
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+const LinkCtx = createContext(null);
+function useLinkCtx() { return useContext(LinkCtx); }
+
+function Linkable({ link, children }) {
+  const t = useT();
+  const ctx = useLinkCtx();
+  const authCtx = useAuthCtx();
+  const canEditLinks = authCtx.isAdmin;
+  if (!ctx || !link) return children;
+  const { pending, pick, links, removeLink, registerRef } = ctx;
+  const isPending = pending && pending.itemId === link.itemId;
+  const myLinks = links.filter((l) => l.aItemId === link.itemId || l.bItemId === link.itemId);
+  return (
+    <div
+      ref={(el) => registerRef && registerRef(link.itemId, el)}
+      className={`relative min-w-0 ${isPending ? "ring-2 ring-amber-400 rounded-xl" : ""}`}
+    >
+      {children}
+      {canEditLinks && (
+        <button
+          onClick={(e) => { e.stopPropagation(); pick(link); }}
+          title={t("Связать с другой целью, KR, задачей или проектом")}
+          className={`absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white border t10 flex items-center justify-center shadow-sm z-20 hover:bg-amber-100 hover:text-amber-700 hover:border-amber-300 ${
+            isPending ? "border-amber-400 text-amber-700 opacity-100" : "border-neutral-300 text-neutral-400 opacity-60"
+          }`}
+        >
+          🔗
+        </button>
+      )}
+      {myLinks.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1 mb-1">
+          {myLinks.map((l) => {
+            const mine = l.aItemId === link.itemId;
+            const otherTrack = mine ? l.bTrackName : l.aTrackName;
+            const otherLabel = mine ? l.bLabel : l.aLabel;
+            const cfg = LINK_TYPES.find((t) => t.key === l.type);
+            return (
+              <span
+                key={l.id}
+                title={otherLabel}
+                className="inline-flex items-center gap-1 t10 px-1.5 py-0.5 rounded-full border max-w-full"
+                style={{ background: cfg.color + "14", color: cfg.color, borderColor: cfg.color + "55" }}
+              >
+                <span className="shrink-0">{cfg.icon} {t(cfg.label)} ·</span>
+                <span className="truncate">{otherTrack}</span>
+                {canEditLinks && (
+                  <button onClick={() => removeLink(l.id)} className="ml-0.5 opacity-60 hover:opacity-100 shrink-0">×</button>
+                )}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function Field({ value, onChange, placeholder, multiline, small }) {
+  const lang = useLang();
+  const preview = useDataT(value);
+  const cls =
+    "w-full bg-transparent outline-none placeholder-neutral-400 focus:placeholder-neutral-300 text-sm";
+  const showPreview = lang === "en" && value && value.trim() && preview && preview !== value;
+  const input = multiline ? (
+    <textarea
+      className={cls + " resize-none"}
+      rows={2}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ) : (
+    <input
+      className={cls}
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+  return (
+    <div>
+      {input}
+      {showPreview && <div className="text-xs text-sky-600 italic mt-0.5">🌐 {preview}</div>}
+    </div>
+  );
+}
+
+function OwnerSelect({ value, onChange, compact }) {
+  const t = useT();
+  const directory = useDirectoryList();
+  const groups = { company: [], department: [], function: [] };
+  directory.forEach((d) => { if (groups[d.type]) groups[d.type].push(d); });
+  const typeLabel = { company: t("Компания"), department: t("Отделы"), function: t("Функции") };
+  return (
+    <select
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      className={
+        "bg-neutral-50 border border-neutral-200 rounded-md outline-none text-neutral-600 " +
+        (compact ? "t11 py-0.5 px-1 w-32 shrink-0" : "text-xs py-1 px-1.5")
+      }
+    >
+      <option value="">{t("Без ответственного")}</option>
+      {Object.entries(groups).map(([type, items]) =>
+        items.length ? (
+          <optgroup key={type} label={typeLabel[type]}>
+            {items.map((it) => (
+              <option key={it.id} value={it.id}>{it.name}</option>
+            ))}
+          </optgroup>
+        ) : null
+      )}
+    </select>
+  );
+}
+
+function TrackerEditor({ tracker, onChange, horizonMonths }) {
+  const tt = useT();
+  const authCtx = useAuthCtx();
+  const t = tracker;
+  const { fact, pct } = computeTracking(t);
+  const update = (field, value) => onChange({ ...t, [field]: value });
+  const addWeek = () => onChange({ ...t, weeks: [...t.weeks, createTrackerWeek(t.weeks.length + 1)] });
+  const updateWeek = (id, field, value) => onChange({ ...t, weeks: t.weeks.map((w) => (w.id === id ? { ...w, [field]: value } : w)) });
+  const removeWeek = (id) => onChange({ ...t, weeks: t.weeks.filter((w) => w.id !== id) });
+  const status = trackingStatus(pct);
+
+  const startDate = t.startDate || todayISO();
+  const autoDeadline = addMonthsISO(startDate, horizonMonths || 1);
+  const deadline = t.deadlineOverride || autoDeadline;
+  const daysLeft = daysBetweenISO(todayISO(), deadline);
+  const urgency = deadlineUrgency(daysLeft);
+  const [editingDeadline, setEditingDeadline] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-sky-200 bg-sky-50 p-2.5 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs text-sky-700 font-medium">
+        <Activity size={12} /> {tt("Трекинг KR (по неделям)")}
+      </div>
+
+      <div className="rounded-md bg-white border border-sky-200 px-2 py-1.5 flex items-center gap-1.5 flex-wrap t11">
+        <CalendarRange size={12} className="text-sky-400 shrink-0" />
+        <span className="text-neutral-500">{tt("Поставлено")} {formatDateRu(startDate)}</span>
+        <span className="text-neutral-300">·</span>
+        <span className="text-neutral-500">{tt("Срок")} {formatDateRu(deadline)}</span>
+        <span className="text-neutral-300">·</span>
+        <span style={{ color: urgency.color }} className="font-medium">
+          {daysLeft < 0 ? `${tt("просрочено на")} ${Math.abs(daysLeft)} ${tt("дн.")}` : `${tt("осталось")} ${daysLeft} ${tt("дн.")}`} · {tt(urgency.label)}
+        </span>
+        {authCtx.isAdmin && !editingDeadline && (
+          <button onClick={() => setEditingDeadline(true)} className="ml-auto text-sky-500 hover:text-sky-700 shrink-0">{tt("изменить срок")}</button>
+        )}
+        {authCtx.isAdmin && editingDeadline && (
+          <span className="flex items-center gap-1 ml-auto shrink-0">
+            <input
+              type="date" value={deadline}
+              onChange={(e) => update("deadlineOverride", e.target.value)}
+              className="text-xs border border-sky-200 rounded px-1 py-0.5"
+            />
+            {t.deadlineOverride && (
+              <button onClick={() => update("deadlineOverride", null)} className="text-neutral-400 hover:text-red-500">{tt("сброс")}</button>
+            )}
+            <button onClick={() => setEditingDeadline(false)} className="text-sky-600 hover:text-sky-800">{tt("готово")}</button>
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        <label className="t11 text-sky-600 space-y-0.5">
+          <span>{tt("Тип метрики")}</span>
+          <select
+            value={t.measureType}
+            onChange={(e) => update("measureType", e.target.value)}
+            className="w-full text-xs border border-sky-200 rounded px-1 py-0.5 bg-white"
+          >
+            <option value="cumulative">{tt("Накопительный (прирост)")}</option>
+            <option value="level">{tt("Уровень (срез)")}</option>
+          </select>
+        </label>
+        <label className="t11 text-sky-600 space-y-0.5">
+          <span>{tt("Исходное")}</span>
+          <input
+            type="number" value={t.baseline}
+            onChange={(e) => update("baseline", parseFloat(e.target.value) || 0)}
+            className="w-full text-xs border border-sky-200 rounded px-1 py-0.5 bg-white"
+          />
+        </label>
+        <label className="t11 text-sky-600 space-y-0.5">
+          <span>{tt("Целевое")}</span>
+          <input
+            type="number" value={t.target}
+            onChange={(e) => update("target", parseFloat(e.target.value) || 0)}
+            className="w-full text-xs border border-sky-200 rounded px-1 py-0.5 bg-white"
+          />
+        </label>
+      </div>
+
+      <div className="space-y-1">
+        {t.weeks.map((w) => (
+          <div key={w.id} className="flex items-center gap-1.5">
+            <input
+              value={w.label} onChange={(e) => updateWeek(w.id, "label", e.target.value)}
+              className="w-16 shrink-0 t11 text-sky-600 bg-transparent border-b border-dashed border-sky-200 outline-none"
+            />
+            <input
+              type="number" value={w.value}
+              onChange={(e) => updateWeek(w.id, "value", parseFloat(e.target.value) || 0)}
+              placeholder={t.measureType === "cumulative" ? tt("прирост за неделю") : tt("значение на конец недели")}
+              className="flex-1 text-xs border border-sky-200 rounded px-1 py-0.5 bg-white"
+            />
+            <select
+              value={w.confidence} onChange={(e) => updateWeek(w.id, "confidence", parseInt(e.target.value, 10))}
+              title={tt("Уверенность 1-10")} className="text-xs border border-sky-200 rounded px-1 py-0.5 bg-white w-12"
+            >
+              {Array.from({ length: 10 }, (_, k) => k + 1).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <button onClick={() => removeWeek(w.id)} className="text-sky-300 hover:text-red-500 shrink-0"><Trash2 size={11} /></button>
+          </div>
+        ))}
+        <button onClick={addWeek} className="flex items-center gap-1 t11 text-sky-600 hover:text-sky-800">
+          <Plus size={11} /> {tt("добавить неделю")}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 pt-1.5 border-t border-sky-200">
+        <div className="flex-1 h-1.5 bg-sky-100 rounded-full overflow-hidden">
+          <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, pct * 100))}%`, background: status.color }} />
+        </div>
+        <span className="text-xs font-medium w-36 text-right" style={{ color: status.color }}>
+          {tt("Факт")} {fact.toFixed(1)} · {(pct * 100).toFixed(0)}% · {tt(status.label)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TrackingSection({ tracking, onChange, horizonMonths }) {
+  const t = useT();
+  if (!tracking) {
+    return (
+      <button onClick={() => onChange(createTracker())} className="flex items-center gap-1 t11 text-sky-600 hover:text-sky-800">
+        <Activity size={11} /> {t("добавить трекинг прогресса")}
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <TrackerEditor tracker={tracking} onChange={onChange} horizonMonths={horizonMonths} />
+      <button onClick={() => onChange(null)} className="t11 text-neutral-400 hover:text-red-500">{t("убрать трекинг")}</button>
+    </div>
+  );
+}
+
+function ObjectiveField({ label, labelColor, textPath, ownerPath, text, ownerId, placeholder }) {
+  const t = useT();
+  const update = useUpdate();
+  return (
+    <div>
+      <div className={`text-xs mb-0.5 ${labelColor}`}>{label}</div>
+      <Field value={text} placeholder={placeholder} onChange={(v) => update(textPath, v)} />
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className="t11 text-neutral-400">{t("Владелец Objective:")}</span>
+        <OwnerSelect value={ownerId} onChange={(v) => update(ownerPath, v)} compact />
+      </div>
+    </div>
+  );
+}
+
+function Collapsible({ title, subtitle, icon, tone, accentColor, defaultOpen = true, right, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const wrapStyle = accentColor ? { borderColor: accentColor, background: accentColor + "10" } : undefined;
+  const textStyle = accentColor ? { color: accentColor } : undefined;
+  return (
+    <div className={`rounded-xl border overflow-hidden ${accentColor ? "" : `${tone.border} ${tone.bg}`}`} style={wrapStyle}>
+      <div className="flex items-start gap-2 px-3 py-2 min-w-0">
+        <button onClick={() => setOpen((o) => !o)} className="flex items-start gap-2 flex-1 min-w-0 text-left">
+          {open ? (
+            <ChevronDown size={15} className={accentColor ? "shrink-0 mt-0.5" : tone.icon + " shrink-0 mt-0.5"} style={textStyle} />
+          ) : (
+            <ChevronRight size={15} className={accentColor ? "shrink-0 mt-0.5" : tone.icon + " shrink-0 mt-0.5"} style={textStyle} />
+          )}
+          <span className={accentColor ? "shrink-0 mt-0.5" : tone.iconWrap + " shrink-0 mt-0.5"} style={textStyle}>{icon}</span>
+          <span className="min-w-0 flex-1 flex flex-wrap items-baseline gap-x-1">
+            <span
+              className={`text-xs font-medium tracking-wide uppercase break-words ${accentColor ? "" : tone.label}`}
+              style={textStyle}
+            >
+              {title}
+            </span>
+            {subtitle && <span className="text-xs text-neutral-400 break-words">· {subtitle}</span>}
+          </span>
+        </button>
+        {right}
+      </div>
+      {open && <div className="px-3 pb-3">{children}</div>}
+    </div>
+  );
+}
+
+const TRACK_TONE_TEXT = {
+  "health-os": "text-emerald-700", "growth-model": "text-amber-700", "prime-growth": "text-orange-700",
+  "coral-evo": "text-violet-700", "it-model": "text-red-500",
+};
+
+const TONES = {
+  mission: { bg: "bg-amber-50", border: "border-amber-200", label: "text-amber-800", icon: "text-amber-500", iconWrap: "text-amber-600" },
+  outcome: { bg: "bg-yellow-50", border: "border-yellow-200", label: "text-yellow-800", icon: "text-yellow-500", iconWrap: "text-yellow-600" },
+  initiative: { bg: "bg-blue-50", border: "border-blue-200", label: "text-blue-800", icon: "text-blue-500", iconWrap: "text-blue-600" },
+  output: { bg: "bg-neutral-50", border: "border-neutral-200", label: "text-neutral-700", icon: "text-neutral-500", iconWrap: "text-neutral-600" },
+  wave: { bg: "bg-emerald-50", border: "border-emerald-200", label: "text-emerald-800", icon: "text-emerald-500", iconWrap: "text-emerald-600" },
+  waveTarget: { bg: "bg-neutral-50", border: "border-neutral-200 border-dashed", label: "text-neutral-500", icon: "text-neutral-400", iconWrap: "text-neutral-400" },
+  quarter: { bg: "bg-rose-50", border: "border-rose-200", label: "text-rose-800", icon: "text-rose-500", iconWrap: "text-rose-600" },
+  month: { bg: "bg-white", border: "border-neutral-200", label: "text-neutral-600", icon: "text-neutral-400", iconWrap: "text-neutral-400" },
+  project: { bg: "bg-indigo-50", border: "border-indigo-200", label: "text-indigo-800", icon: "text-indigo-500", iconWrap: "text-indigo-600" },
+};
+
+function TaskRow({ path, task, idx, onRemove }) {
+  const t = useT();
+  const update = useUpdate();
+  return (
+    <div className="flex items-center gap-1.5 pl-6 py-0.5">
+      <Circle size={6} className="text-neutral-300 shrink-0" />
+      <Field small value={task.text} placeholder={`${t("Задача")} ${idx + 1}`} onChange={(v) => update([...path, "text"], v)} />
+      <OwnerSelect value={task.ownerId} onChange={(v) => update([...path, "ownerId"], v)} compact />
+      <button onClick={onRemove} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+        <Trash2 size={12} />
+      </button>
+    </div>
+  );
+}
+
+function MonthlyKRCard({ path, month }) {
+  const t = useT();
+  const update = useUpdate();
+  const addTask = () => {
+    if (month.tasks.length >= MAX_TASKS) return;
+    update([...path, "tasks"], [...month.tasks, createTask()]);
+  };
+  const removeTask = (idx) => {
+    update([...path, "tasks"], month.tasks.filter((_, i) => i !== idx));
+  };
+  return (
+    <Collapsible title={month.label} icon={<ListChecks size={13} />} tone={TONES.month} defaultOpen={false}>
+      <div className="pl-1 pt-1 space-y-1">
+        <Field value={month.text} placeholder={t("KR месяца — что должно быть достигнуто")}
+          onChange={(v) => update([...path, "text"], v)} />
+        <TrackingSection tracking={month.tracking} onChange={(v) => update([...path, "tracking"], v)} horizonMonths={1} />
+        <div className="pt-1 space-y-1">
+          {month.tasks.map((tk, i) => (
+            <TaskRow key={tk.id} path={[...path, "tasks", i]} task={tk} idx={i} onRemove={() => removeTask(i)} />
+          ))}
+        </div>
+        <div className="pl-6 flex items-center gap-2 pt-0.5">
+          <button
+            onClick={addTask}
+            disabled={month.tasks.length >= MAX_TASKS}
+            className="flex items-center gap-1 t11 text-neutral-500 hover:text-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Plus size={11} /> {t("задача")}
+          </button>
+          <span className="t10 text-neutral-300">{month.tasks.length}/{MAX_TASKS}</span>
+        </div>
+      </div>
+    </Collapsible>
+  );
+}
+
+function QuarterCard({ path, quarter }) {
+  const t = useT();
+  const update = useUpdate();
+  return (
+    <Collapsible title={`${t("Квартал")} ${quarter.label}`} subtitle={t("веха + инициатива 3 мес")} icon={<CalendarRange size={13} />} tone={TONES.quarter}>
+      <div className="space-y-2">
+        <div>
+          <div className="text-xs text-rose-600 mb-0.5">{t("KR-веха квартала")}</div>
+          <Field value={quarter.milestone} placeholder={t("Что считается достигнутым к концу квартала")}
+            onChange={(v) => update([...path, "milestone"], v)} />
+        </div>
+        <TrackingSection tracking={quarter.tracking} onChange={(v) => update([...path, "tracking"], v)} horizonMonths={3} />
+        <div>
+          <div className="text-xs text-rose-600 mb-0.5">{t("Инициатива на 3 мес.")}</div>
+          <Field value={quarter.initiative3mo} placeholder={t("Операционный проект квартала")}
+            onChange={(v) => update([...path, "initiative3mo"], v)} />
+        </div>
+        <ObjectiveField
+          label={t("Objective")} labelColor="text-rose-600"
+          textPath={[...path, "objective"]} ownerPath={[...path, "objectiveOwner"]}
+          text={quarter.objective} ownerId={quarter.objectiveOwner}
+          placeholder={t("Цель инициативы")}
+        />
+        <div className="pt-1 space-y-1.5">
+          {quarter.monthlyKRs.map((m, i) => (
+            <MonthlyKRCard key={m.id} path={[...path, "monthlyKRs", i]} month={m} />
+          ))}
+        </div>
+      </div>
+    </Collapsible>
+  );
+}
+
+function WaveCard({ path, wave, waveIndex }) {
+  const t = useT();
+  const update = useUpdate();
+  const isFirst = waveIndex === 0;
+  const decomposed = wave.status === "decomposed";
+  const tone = decomposed ? TONES.wave : TONES.waveTarget;
+  const expand = () => update([...path, "status"], "decomposed");
+  const collapse = () => update([...path, "status"], "target");
+
+  return (
+    <Collapsible
+      title={`${t("Волна")} ${waveIndex + 1}`} subtitle={wave.periodLabel} icon={<Layers size={13} />} tone={tone} defaultOpen={isFirst}
+      right={
+        decomposed ? (
+          !isFirst && <button onClick={collapse} className="t11 text-neutral-400 hover:text-neutral-600 px-2 py-0.5">{t("свернуть в цель")}</button>
+        ) : (
+          <button onClick={expand} className="flex items-center gap-1 t11 text-emerald-700 bg-emerald-100 hover:bg-emerald-200 px-2 py-1 rounded-md">
+            <Sparkles size={11} /> {t("разложить волну")}
+          </button>
+        )
+      }
+    >
+      {decomposed ? (
+        <div className="space-y-2">
+          <ObjectiveField
+            label={t("Objective на 6 мес.")} labelColor="text-emerald-700"
+            textPath={[...path, "objective6mo"]} ownerPath={[...path, "objective6moOwner"]}
+            text={wave.objective6mo} ownerId={wave.objective6moOwner}
+            placeholder={t("Цель полугодия")}
+          />
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {wave.quarters.map((q, i) => (
+              <QuarterCard key={q.id} path={[...path, "quarters", i]} quarter={q} />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="text-xs text-neutral-400 mb-0.5">{t("Цель-ориентир (без декомпозиции)")}</div>
+          <Field value={wave.targetText} placeholder={t("Чего нужно достичь в этом полугодии — детали позже, на контрольной точке")}
+            onChange={(v) => update([...path, "targetText"], v)} />
+        </div>
+      )}
+    </Collapsible>
+  );
+}
+
+function KROutputCard({ path, output }) {
+  const t = useT();
+  const update = useUpdate();
+  return (
+    <Collapsible title={output.label} icon={<Target size={13} />} tone={TONES.output}>
+      <div className="space-y-2">
+        <Field value={output.text} placeholder={t("Формулировка ключевого результата (output) на 18 мес.")}
+          onChange={(v) => update([...path, "text"], v)} />
+        <TrackingSection tracking={output.tracking} onChange={(v) => update([...path, "tracking"], v)} horizonMonths={18} />
+        <div className="space-y-1.5 pt-1">
+          {output.waves.map((w, i) => (
+            <WaveCard key={w.id} path={[...path, "waves", i]} wave={w} waveIndex={i} />
+          ))}
+        </div>
+      </div>
+    </Collapsible>
+  );
+}
+
+function KROutcomeCard({ path, outcome, onRemove }) {
+  const t = useT();
+  const update = useUpdate();
+  return (
+    <Collapsible
+      title={outcome.label} icon={<Flag size={14} />} tone={TONES.outcome}
+      right={<button onClick={onRemove} className="text-neutral-300 hover:text-red-500 p-1"><Trash2 size={13} /></button>}
+    >
+      <div className="space-y-2">
+        <div>
+          <div className="text-xs text-yellow-700 mb-0.5">KR Outcome</div>
+          <Field value={outcome.text} placeholder={t("Ключевой результат стратегической цели (18 мес.)")}
+            onChange={(v) => update([...path, "text"], v)} />
+        </div>
+        <div>
+          <div className="text-xs text-yellow-700 mb-0.5">{t("Метрика")}</div>
+          <Field small value={outcome.metric} placeholder={t("Как измеряется (число, %, статус)")}
+            onChange={(v) => update([...path, "metric"], v)} />
+        </div>
+        <TrackingSection tracking={outcome.tracking} onChange={(v) => update([...path, "tracking"], v)} horizonMonths={18} />
+
+        <Collapsible title={t("Стратегическая инициатива на 18 мес.")} icon={<Layers size={13} />} tone={TONES.initiative}>
+          <div className="space-y-2">
+            <Field value={outcome.initiativeText} placeholder={t("Программа работ, обеспечивающая KR Outcome")}
+              onChange={(v) => update([...path, "initiativeText"], v)} />
+            <ObjectiveField
+              label={t("Objective")} labelColor="text-blue-700"
+              textPath={[...path, "objectiveText"]} ownerPath={[...path, "objectiveOwner"]}
+              text={outcome.objectiveText} ownerId={outcome.objectiveOwner}
+              placeholder={t("Цель инициативы")}
+            />
+            <div className="space-y-1.5 pt-1">
+              {outcome.krOutputs.map((ko, i) => (
+                <KROutputCard key={ko.id} path={[...path, "krOutputs", i]} output={ko} />
+              ))}
+            </div>
+          </div>
+        </Collapsible>
+      </div>
+    </Collapsible>
+  );
+}
+
+function TrackEditor({ trackId }) {
+  const t = useT();
+  const [data, setData] = useState(createTrackData());
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    (async () => {
+      try {
+        const res = await window.storage.get(`okr-track:${trackId}`, false);
+        if (!cancelled) setData(res ? migrateTrackData(JSON.parse(res.value)) : createTrackData());
+      } catch {
+        if (!cancelled) setData(createTrackData());
+      }
+      if (!cancelled) setLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [trackId]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      window.storage.set(`okr-track:${trackId}`, JSON.stringify(data), false).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [data, loaded, trackId]);
+
+  const update = useCallback((path, value) => {
+    setData((prev) => {
+      const draft = JSON.parse(JSON.stringify(prev));
+      let node = draft;
+      for (let i = 0; i < path.length - 1; i++) node = node[path[i]];
+      node[path[path.length - 1]] = value;
+      return draft;
+    });
+  }, []);
+
+  const addOutcome = (uoIdx) => {
+    setData((prev) => {
+      const draft = JSON.parse(JSON.stringify(prev));
+      const uo = draft.ultimateObjectives[uoIdx];
+      if (uo.krOutcomes.length >= MAX_KR_OUTCOMES) return prev;
+      uo.krOutcomes.push(createKROutcome(uo.krOutcomes.length + 1));
+      return draft;
+    });
+  };
+  const removeOutcome = (uoIdx, id) => {
+    setData((prev) => {
+      const draft = JSON.parse(JSON.stringify(prev));
+      const uo = draft.ultimateObjectives[uoIdx];
+      uo.krOutcomes = uo.krOutcomes.filter((o) => o.id !== id);
+      return draft;
+    });
+  };
+  const addUltimateObjective = () => {
+    setData((prev) => {
+      if (prev.ultimateObjectives.length >= MAX_ULTIMATE_OBJECTIVES) return prev;
+      return { ...prev, ultimateObjectives: [...prev.ultimateObjectives, createUltimateObjective(prev.ultimateObjectives.length + 1)] };
+    });
+  };
+  const removeUltimateObjective = (id) => {
+    setData((prev) => {
+      if (prev.ultimateObjectives.length <= 1) return prev;
+      return { ...prev, ultimateObjectives: prev.ultimateObjectives.filter((u) => u.id !== id) };
+    });
+  };
+
+  if (!loaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+
+  const { filled, total } = countFilled(data);
+  const pct = total ? Math.round((filled / total) * 100) : 0;
+  const trackName = (TRACKS.find((t) => t.id === trackId) || {}).name || trackId;
+  const trackColor = TRACK_COLORS[trackId] || "#525252";
+
+  return (
+    <UpdateCtx.Provider value={update}>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 px-1">
+          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: trackColor }} />
+          <span className="text-sm font-semibold" style={{ color: trackColor }}>{trackName}</span>
+        </div>
+        <div className="flex items-center justify-between px-1">
+          <div className="text-xs text-neutral-400">{t("Заполнено полей")}: {filled} / {total}</div>
+          <div className="flex items-center gap-2 w-40">
+            <div className="h-1.5 flex-1 bg-neutral-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: trackColor }} />
+            </div>
+            <span className="text-xs text-neutral-400 w-8 text-right">{pct}%</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 items-start">
+          <Collapsible title={t("Миссия трека")} icon={<CheckCircle2 size={14} />} tone={TONES.mission} accentColor={trackColor}>
+            <div>
+              <div className={`text-xs mb-0.5 ${TRACK_TONE_TEXT[trackId] || "text-amber-700"}`}>{t("Миссия трека")}</div>
+              <Field value={data.mission} placeholder={t("Зачем трек существует")} onChange={(v) => update(["mission"], v)} />
+            </div>
+          </Collapsible>
+
+          <TrackProjects trackId={trackId} trackName={TRACKS.find((t) => t.id === trackId)?.name} />
+        </div>
+
+        {data.ultimateObjectives.map((uo, ui) => (
+          <Collapsible
+            key={uo.id}
+            title={`${t("Главная цель")} ${ui + 1} ${t("из")} ${data.ultimateObjectives.length}`}
+            icon={<Flag size={14} />} tone={TONES.mission} accentColor={trackColor}
+            right={
+              data.ultimateObjectives.length > 1 && (
+                <button onClick={() => removeUltimateObjective(uo.id)} className="text-neutral-300 hover:text-red-500 p-1">
+                  <Trash2 size={13} />
+                </button>
+              )
+            }
+          >
+            <div className="space-y-3">
+              <ObjectiveField
+                label={t("Ultimate Objective (18 мес.)")} labelColor={TRACK_TONE_TEXT[trackId] || "text-amber-700"}
+                textPath={["ultimateObjectives", ui, "text"]} ownerPath={["ultimateObjectives", ui, "owner"]}
+                text={uo.text} ownerId={uo.owner}
+                placeholder={t("Одна из главных стратегических целей трека на 18 месяцев")}
+              />
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                {uo.krOutcomes.map((o, i) => (
+                  <KROutcomeCard
+                    key={o.id} path={["ultimateObjectives", ui, "krOutcomes", i]} outcome={o}
+                    onRemove={() => removeOutcome(ui, o.id)}
+                  />
+                ))}
+              </div>
+
+              {uo.krOutcomes.length < MAX_KR_OUTCOMES && (
+                <button
+                  onClick={() => addOutcome(ui)}
+                  className="w-full flex items-center justify-center gap-1.5 text-sm text-yellow-700 border border-dashed border-yellow-300 rounded-xl py-2.5 hover:bg-yellow-50"
+                >
+                  <Plus size={15} /> {t("Добавить KR Outcome")} ({uo.krOutcomes.length}/{MAX_KR_OUTCOMES})
+                </button>
+              )}
+            </div>
+          </Collapsible>
+        ))}
+
+        {data.ultimateObjectives.length < MAX_ULTIMATE_OBJECTIVES && (
+          <button
+            onClick={addUltimateObjective}
+            className="w-full flex items-center justify-center gap-1.5 text-sm border border-dashed rounded-xl py-2.5"
+            style={{ color: trackColor, borderColor: trackColor + "80" }}
+          >
+            <Plus size={15} /> {t("Добавить главную цель")} ({data.ultimateObjectives.length}/{MAX_ULTIMATE_OBJECTIVES})
+          </button>
+        )}
+      </div>
+    </UpdateCtx.Provider>
+  );
+}
+
+function Owner({ id }) {
+  const directory = useDirectoryList();
+  const name = ownerName(directory, id);
+  if (!name) return null;
+  return <span className="t11 text-neutral-400 font-normal">· {name}</span>;
+}
+
+function StaticRow({ label, labelColor, text, ownerId, link }) {
+  const displayText = useDataT(text);
+  if (!text) return null;
+  const body = (
+    <div>
+      <div className={`text-xs mb-0.5 ${labelColor}`}>
+        {label} <Owner id={ownerId} />
+      </div>
+      <div className="text-sm text-neutral-800 whitespace-pre-wrap">{displayText}</div>
+    </div>
+  );
+  return link ? <Linkable link={link}>{body}</Linkable> : body;
+}
+
+function CombinedMonth({ month, trackId, trackName }) {
+  const monthText = useDataT(month.text);
+  if (!monthHasContent(month)) return null;
+  const tasks = month.tasks.filter((t) => !!t.text);
+  return (
+    <Collapsible title={month.label} icon={<ListChecks size={13} />} tone={TONES.month} defaultOpen={true}>
+      <div className="space-y-1">
+        {month.text && (
+          <Linkable link={{ trackId, trackName, itemId: month.id, itemLabel: `KR месяца (${month.label}) — ${truncate(month.text)}` }}>
+            <div className="text-sm text-neutral-800">{monthText}</div>
+          </Linkable>
+        )}
+        {tasks.length > 0 && (
+          <div className="pt-1 space-y-1">
+            {tasks.map((t, i) => (
+              <Linkable
+                key={t.id}
+                link={{ trackId, trackName, itemId: t.id, itemLabel: `Задача — ${truncate(t.text)}` }}
+              >
+                <div className="flex items-center gap-2 pl-4 pr-4">
+                  <Circle size={6} className="text-neutral-300 shrink-0" />
+                  <span className="text-sm text-neutral-700 flex-1"><TranslatedText text={t.text} /></span>
+                  <Owner id={t.ownerId} />
+                </div>
+              </Linkable>
+            ))}
+          </div>
+        )}
+      </div>
+    </Collapsible>
+  );
+}
+
+function CombinedQuarter({ quarter, trackId, trackName }) {
+  const t = useT();
+  if (!quarterHasContent(quarter)) return null;
+  const months = quarter.monthlyKRs.filter(monthHasContent);
+  return (
+    <Collapsible title={`${t("Квартал")} ${quarter.label}`} icon={<CalendarRange size={13} />} tone={TONES.quarter}>
+      <div className="space-y-2">
+        <StaticRow
+          label={t("KR-веха квартала")} labelColor="text-rose-600" text={quarter.milestone}
+          link={{ trackId, trackName, itemId: `${quarter.id}-milestone`, itemLabel: `KR-веха (${quarter.label}) — ${truncate(quarter.milestone)}` }}
+        />
+        <StaticRow label={t("Инициатива на 3 мес.")} labelColor="text-rose-600" text={quarter.initiative3mo} />
+        <StaticRow
+          label={t("Objective")} labelColor="text-rose-600" text={quarter.objective} ownerId={quarter.objectiveOwner}
+          link={{ trackId, trackName, itemId: quarter.id, itemLabel: `Objective (${quarter.label}) — ${truncate(quarter.objective)}` }}
+        />
+        {months.length > 0 && (
+          <div className="pt-1 space-y-1.5">
+            {months.map((m) => <CombinedMonth key={m.id} month={m} trackId={trackId} trackName={trackName} />)}
+          </div>
+        )}
+      </div>
+    </Collapsible>
+  );
+}
+
+function CombinedWave({ wave, waveIndex, trackId, trackName }) {
+  const t = useT();
+  if (!waveHasContent(wave)) return null;
+  const quarters = wave.quarters.filter(quarterHasContent);
+  return (
+    <Collapsible title={`${t("Волна")} ${waveIndex + 1}`} subtitle={wave.periodLabel} icon={<Layers size={13} />} tone={TONES.wave} defaultOpen={waveIndex === 0}>
+      <div className="space-y-2">
+        <StaticRow
+          label={t("Objective на 6 мес.")} labelColor="text-emerald-700" text={wave.objective6mo} ownerId={wave.objective6moOwner}
+          link={{ trackId, trackName, itemId: wave.id, itemLabel: `Objective 6 мес. (Волна ${waveIndex + 1}) — ${truncate(wave.objective6mo)}` }}
+        />
+        {quarters.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {quarters.map((q) => <CombinedQuarter key={q.id} quarter={q} trackId={trackId} trackName={trackName} />)}
+          </div>
+        )}
+      </div>
+    </Collapsible>
+  );
+}
+
+function CombinedOutput({ output, trackId, trackName }) {
+  const t = useT();
+  const outputText = useDataT(output.text);
+  if (!outputHasContent(output)) return null;
+  const waves = output.waves.filter(waveHasContent);
+  return (
+    <Linkable link={{ trackId, trackName, itemId: output.id, itemLabel: `${output.label} — ${truncate(output.text)}` }}>
+      <Collapsible title={output.label} icon={<Target size={13} />} tone={TONES.output}>
+        <div className="space-y-2">
+          {output.text && <div className="text-sm text-neutral-800">{outputText}</div>}
+          {waves.length > 0 ? (
+            <div className="space-y-1.5 pt-1">
+              {output.waves.map((w, i) => <CombinedWave key={w.id} wave={w} waveIndex={i} trackId={trackId} trackName={trackName} />)}
+            </div>
+          ) : (
+            <div className="text-xs text-neutral-400 italic">{t("волны ещё не разложены")}</div>
+          )}
+        </div>
+      </Collapsible>
+    </Linkable>
+  );
+}
+
+function CombinedOutcome({ outcome, trackId, trackName }) {
+  const t = useT();
+  const initiativeText = useDataT(outcome.initiativeText);
+  if (!outcomeHasContent(outcome)) return null;
+  const outputs = outcome.krOutputs.filter(outputHasContent);
+  return (
+    <Linkable link={{ trackId, trackName, itemId: outcome.id, itemLabel: `KR Outcome — ${truncate(outcome.text)}` }}>
+      <Collapsible title={outcome.label} icon={<Flag size={14} />} tone={TONES.outcome}>
+        <div className="space-y-2">
+          <StaticRow label="KR Outcome" labelColor="text-yellow-700" text={outcome.text} />
+          {outcome.metric && <StaticRow label={t("Метрика")} labelColor="text-yellow-700" text={outcome.metric} />}
+          {(outcome.initiativeText || outcome.objectiveText || outputs.length > 0) && (
+            <Collapsible title={t("Стратегическая инициатива на 18 мес.")} icon={<Layers size={13} />} tone={TONES.initiative}>
+              <div className="space-y-2">
+                {outcome.initiativeText && <div className="text-sm text-neutral-800">{initiativeText}</div>}
+                <StaticRow
+                  label={t("Objective")} labelColor="text-blue-700" text={outcome.objectiveText} ownerId={outcome.objectiveOwner}
+                  link={{ trackId, trackName, itemId: `${outcome.id}-init-objective`, itemLabel: `Objective инициативы — ${truncate(outcome.objectiveText)}` }}
+                />
+                {outputs.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    {outputs.map((ko) => <CombinedOutput key={ko.id} output={ko} trackId={trackId} trackName={trackName} />)}
+                  </div>
+                )}
+              </div>
+            </Collapsible>
+          )}
+        </div>
+      </Collapsible>
+    </Linkable>
+  );
+}
+
+function CombinedTrackSection({ trackId, trackName, data, projects }) {
+  const t = useT();
+  const missionText = useDataT(data.mission);
+  const color = TRACK_COLORS[trackId] || "#525252";
+  const { filled, total } = countFilled(data);
+  const pct = total ? Math.round((filled / total) * 100) : 0;
+  const ultimateObjectives = (data.ultimateObjectives || []).filter(ultimateObjectiveHasContent);
+  const trackProjects = (projects || []).filter((p) => p.trackIds.includes(trackId));
+
+  return (
+    <div className="rounded-xl border border-neutral-200 overflow-hidden" style={{ borderLeftWidth: 4, borderLeftColor: color }}>
+      <div className="px-3 py-2.5 bg-neutral-50 flex items-center gap-3">
+        <span className="text-sm font-semibold" style={{ color }}>{trackName}</span>
+        <div className="flex items-center gap-2 ml-auto w-32">
+          <div className="h-1.5 flex-1 bg-neutral-200 rounded-full overflow-hidden">
+            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+          </div>
+          <span className="text-xs text-neutral-400 w-8 text-right">{pct}%</span>
+        </div>
+      </div>
+      <div className="p-3 space-y-2">
+        {data.mission && (
+          <div className="rounded-lg bg-white border border-neutral-100 px-3 py-2" style={{ borderLeftWidth: 3, borderLeftColor: color }}>
+            <div className="text-xs text-neutral-500">{missionText}</div>
+          </div>
+        )}
+        {trackProjects.length > 0 && (
+          <div className="space-y-1.5">
+            {trackProjects.map((p) => (
+              <ProjectMiniCard
+                key={p.id}
+                project={p}
+                link={{ trackId, trackName, itemId: `project-${p.id}`, itemLabel: `Проект/Инициатива — ${truncate(p.name)}` }}
+              />
+            ))}
+          </div>
+        )}
+        {ultimateObjectives.length > 0 ? (
+          <div className="space-y-2">
+            {ultimateObjectives.map((uo, ui) => {
+              const outcomes = uo.krOutcomes.filter(outcomeHasContent);
+              return (
+                <div key={uo.id} className="rounded-lg bg-white border border-neutral-100 px-3 py-2 space-y-1.5" style={{ borderLeftWidth: 3, borderLeftColor: color }}>
+                  <StaticRow
+                    label={`${t("Главная цель")} ${ui + 1}`} labelColor="text-amber-700" text={uo.text} ownerId={uo.owner}
+                    link={{ trackId, trackName, itemId: `ultimate-${uo.id}`, itemLabel: `Главная цель ${ui + 1} — ${truncate(uo.text)}` }}
+                  />
+                  {outcomes.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      {outcomes.map((o) => <CombinedOutcome key={o.id} outcome={o} trackId={trackId} trackName={trackName} />)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="text-xs text-neutral-400 italic px-1">{t("пока нет заполненных целей")}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function LinkBanner({ pending, onCancel }) {
+  const t = useT();
+  if (!pending) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+      <span className="min-w-0 break-words">
+        {t("Выбрано:")} <b>{pending.trackName}</b> · {truncate(pending.itemLabel, 70)}. {t("Кликните 🔗 у другого узла (цели, KR, задачи или проекта), чтобы связать.")}
+      </span>
+      <button onClick={onCancel} className="text-amber-700 hover:text-amber-900 underline shrink-0">{t("отмена")}</button>
+    </div>
+  );
+}
+
+function LinkTypeModal({ pair, onChoose, onCancel }) {
+  const t = useT();
+  if (!pair) return null;
+  const { a, b } = pair;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl p-4 w-full max-w-sm space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold text-neutral-800">{t("Тип связи между целями")}</div>
+        <div className="text-xs bg-neutral-50 border border-neutral-200 rounded-lg p-2.5 space-y-1">
+          <div><b style={{ color: TRACK_COLORS[a.trackId] }}>{a.trackName}</b> · {truncate(a.itemLabel, 80)}</div>
+          <div className="text-neutral-400">↕</div>
+          <div><b style={{ color: TRACK_COLORS[b.trackId] }}>{b.trackName}</b> · {truncate(b.itemLabel, 80)}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {LINK_TYPES.map((lt) => (
+            <button
+              key={lt.key}
+              onClick={() => onChoose(lt.key)}
+              className="flex items-center gap-1.5 text-xs font-medium rounded-lg px-2.5 py-2 border hover:brightness-95"
+              style={{ borderColor: lt.color, color: lt.color, background: lt.color + "10" }}
+            >
+              <span>{lt.icon}</span> {t(lt.label)}
+            </button>
+          ))}
+        </div>
+        <button onClick={onCancel} className="w-full text-xs text-neutral-400 hover:text-neutral-600 py-1">
+          {t("Отмена")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LinksPanel({ links, removeLink }) {
+  const t = useT();
+  if (links.length === 0) return null;
+  return (
+    <div className="border border-neutral-200 rounded-xl p-3 space-y-1.5">
+      <div className="text-xs font-medium uppercase tracking-wide text-neutral-500 mb-1">
+        {t("Связи между треками")} ({links.length})
+      </div>
+      {links.map((l) => {
+        const cfg = LINK_TYPES.find((lt) => lt.key === l.type);
+        return (
+          <div key={l.id} className="flex items-center gap-2 text-xs bg-neutral-50 rounded-lg px-2.5 py-1.5">
+            <span
+              className="px-1.5 py-0.5 rounded-full border shrink-0"
+              style={{ background: cfg.color + "14", color: cfg.color, borderColor: cfg.color + "55" }}
+            >
+              {cfg.icon} {t(cfg.label)}
+            </span>
+            <span className="flex-1 truncate">
+              <b style={{ color: TRACK_COLORS[l.aTrackId] }}>{l.aTrackName}</b> · {truncate(l.aLabel, 40)}
+              <span className="text-neutral-400"> ↔ </span>
+              <b style={{ color: TRACK_COLORS[l.bTrackId] }}>{l.bTrackName}</b> · {truncate(l.bLabel, 40)}
+            </span>
+            <button onClick={() => removeLink(l.id)} className="text-neutral-300 hover:text-red-500 shrink-0">
+              <Trash2 size={12} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function useLinks() {
+  const [links, setLinks] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-links", false);
+        setLinks(res ? JSON.parse(res.value) : []);
+      } catch {
+        setLinks([]);
+      }
+      setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      window.storage.set("okr-links", JSON.stringify(links), false).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [links, loaded]);
+  return [links, setLinks];
+}
+
+function useAllTracksData() {
+  const [tracksData, setTracksData] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = {};
+      for (const t of TRACKS) {
+        try {
+          const res = await window.storage.get(`okr-track:${t.id}`, false);
+          result[t.id] = res ? migrateTrackData(JSON.parse(res.value)) : createTrackData();
+        } catch {
+          result[t.id] = createTrackData();
+        }
+      }
+      if (!cancelled) { setTracksData(result); setLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return [tracksData, loaded];
+}
+
+function ConnectorLayer({ paths }) {
+  return (
+    <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none", zIndex: 50, overflow: "visible" }}>
+      {paths.map((p) => {
+        const cfg = LINK_TYPES.find((t) => t.key === p.type);
+        const dx = Math.max(50, Math.abs(p.bx - p.ax) / 2);
+        const d = `M ${p.ax},${p.ay} C ${p.ax + dx},${p.ay} ${p.bx - dx},${p.by} ${p.bx},${p.by}`;
+        return (
+          <g key={p.id}>
+            <path
+              d={d} fill="none" stroke="#ffffff" strokeWidth="5.5"
+              strokeLinecap="round" opacity="0.9"
+            />
+            <path
+              d={d} fill="none" stroke={cfg.color} strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={p.type === "waiting" ? "7 5" : "none"}
+            />
+            <circle cx={p.ax} cy={p.ay} r="4.5" fill="#ffffff" />
+            <circle cx={p.ax} cy={p.ay} r="3.5" fill={cfg.color} />
+            <circle cx={p.bx} cy={p.by} r="4.5" fill="#ffffff" />
+            <circle cx={p.bx} cy={p.by} r="3.5" fill={cfg.color} />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function useZoom() {
+  const [zoom, setZoom] = useState(1);
+  const outerRef = useRef(null);
+  const contentRef = useRef(null);
+
+  const zoomIn = () => setZoom((z) => Math.min(1.2, +(z + 0.1).toFixed(2)));
+  const zoomOut = () => setZoom((z) => Math.max(0.3, +(z - 0.1).toFixed(2)));
+  const zoomReset = () => setZoom(1);
+  const zoomFit = () => {
+    if (!outerRef.current || !contentRef.current) return;
+    const avail = outerRef.current.clientWidth - 8;
+    const naturalW = contentRef.current.scrollWidth / zoom;
+    if (avail > 0 && naturalW > 0) {
+      setZoom(Math.max(0.3, Math.min(1, avail / naturalW)));
+    }
+  };
+
+  return { zoom, zoomIn, zoomOut, zoomReset, zoomFit, outerRef, contentRef };
+}
+
+function useConnectorLines(links) {
+  const stageRef = useRef(null);
+  const refsMap = useRef(new Map());
+  const [paths, setPaths] = useState([]);
+
+  const registerRef = useCallback((itemId, el) => {
+    if (el) refsMap.current.set(itemId, el);
+    else refsMap.current.delete(itemId);
+  }, []);
+
+  const recompute = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const stageRect = stage.getBoundingClientRect();
+    const next = [];
+    links.forEach((l) => {
+      const aEl = refsMap.current.get(l.aItemId);
+      const bEl = refsMap.current.get(l.bItemId);
+      if (!aEl || !bEl) return;
+      const ar = aEl.getBoundingClientRect();
+      const br = bEl.getBoundingClientRect();
+      next.push({
+        id: l.id,
+        type: l.type,
+        ax: ar.right - stageRect.left,
+        ay: ar.top - stageRect.top + 6,
+        bx: br.right - stageRect.left,
+        by: br.top - stageRect.top + 6,
+      });
+    });
+    setPaths(next);
+  }, [links]);
+
+  useEffect(() => {
+    recompute();
+    const stage = stageRef.current;
+    const ro = new ResizeObserver(() => recompute());
+    if (stage) ro.observe(stage);
+    window.addEventListener("resize", recompute);
+    const t1 = setTimeout(recompute, 60);
+    const t2 = setTimeout(recompute, 300);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", recompute);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [recompute]);
+
+  return { stageRef, registerRef, paths, recompute };
+}
+
+function CombinedTree() {
+  const t = useT();
+  const [tracksData, loaded] = useAllTracksData();
+  const [projects, , projectsLoaded] = useProjects();
+  const [links, setLinks] = useLinks();
+  const [pending, setPending] = useState(null);
+  const [modalPair, setModalPair] = useState(null);
+  const { stageRef, registerRef, paths, recompute } = useConnectorLines(links);
+  const { zoom, zoomIn, zoomOut, zoomReset, zoomFit, outerRef, contentRef } = useZoom();
+
+  const pick = useCallback((item) => {
+    setPending((prev) => {
+      if (!prev) return item;
+      if (prev.itemId === item.itemId) return null;
+      setModalPair({ a: prev, b: item });
+      return null;
+    });
+  }, []);
+
+  const removeLink = useCallback((id) => {
+    setLinks((prev) => prev.filter((l) => l.id !== id));
+  }, [setLinks]);
+
+  const confirmLink = (type) => {
+    if (!modalPair) return;
+    const { a, b } = modalPair;
+    setLinks((prev) => [
+      ...prev,
+      {
+        id: newId(), type,
+        aTrackId: a.trackId, aTrackName: a.trackName, aItemId: a.itemId, aLabel: a.itemLabel,
+        bTrackId: b.trackId, bTrackName: b.trackName, bItemId: b.itemId, bLabel: b.itemLabel,
+      },
+    ]);
+    setModalPair(null);
+    setTimeout(recompute, 60);
+  };
+
+  if (!loaded || !projectsLoaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+
+  const withContent = TRACKS.filter(
+    (tr) => trackHasContent(tracksData[tr.id]) || (projects || []).some((p) => p.trackIds.includes(tr.id))
+  );
+
+  return (
+    <LinkCtx.Provider value={{ pending, pick, links, removeLink, registerRef }}>
+      <div className="space-y-3">
+        <div className="text-center">
+          <div className="inline-block bg-neutral-100 rounded-xl px-4 py-2 text-sm font-semibold text-neutral-700">
+            {t("Единая цель Coral Club из")} {TRACKS.length} {t("треков")}
+          </div>
+          <div className="text-neutral-300 text-lg leading-none mt-1">↓</div>
+        </div>
+
+        <div className="flex gap-2 flex-wrap justify-center pb-1">
+          {TRACKS.map((tr) => {
+            const { filled, total } = countFilled(tracksData[tr.id]);
+            const pct = total ? Math.round((filled / total) * 100) : 0;
+            return (
+              <div key={tr.id} className="flex items-center gap-1.5 text-xs bg-white border border-neutral-200 rounded-full px-2.5 py-1">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TRACK_COLORS[tr.id] }} />
+                <span className="text-neutral-600">{tr.name}</span>
+                <span className="text-neutral-400">{pct}%</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap justify-center t10 text-neutral-400">
+          {LINK_TYPES.map((lt) => (
+            <span key={lt.key} className="inline-flex items-center gap-1">
+              <span className="inline-block w-3 h-0.5 rounded" style={{ background: lt.color }} />
+              {lt.icon} {t(lt.label)}
+            </span>
+          ))}
+        </div>
+
+        <LinkBanner pending={pending} onCancel={() => setPending(null)} />
+
+        {withContent.length === 0 ? (
+          <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
+            {t("Пока ни одна волна ни в одном треке не заполнена")}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-center gap-1 pb-1">
+              <button onClick={zoomOut} className="w-7 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-sm">−</button>
+              <button onClick={zoomReset} className="px-2 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-xs tabular-nums w-14">
+                {Math.round(zoom * 100)}%
+              </button>
+              <button onClick={zoomIn} className="w-7 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-sm">+</button>
+              <button onClick={zoomFit} className="ml-1 px-2.5 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-xs">
+                {t("уместить все треки")}
+              </button>
+            </div>
+
+            <div ref={outerRef} className="overflow-auto border border-neutral-100 rounded-xl" style={{ maxHeight: "70vh" }}>
+              <div
+                ref={(el) => { contentRef.current = el; stageRef.current = el; }}
+                className="relative flex gap-3 w-max"
+                style={{ zoom }}
+              >
+                {withContent.map((tr) => (
+                  <div key={tr.id} className="shrink-0 overflow-hidden" style={{ width: 340, maxWidth: 340 }}>
+                    <CombinedTrackSection trackId={tr.id} trackName={tr.name} data={tracksData[tr.id]} projects={projects} />
+                  </div>
+                ))}
+                <div className="absolute inset-0" style={{ pointerEvents: "none" }}>
+                  <ConnectorLayer paths={paths} />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <LinksPanel links={links} removeLink={removeLink} />
+      </div>
+
+      <LinkTypeModal pair={modalPair} onChoose={confirmLink} onCancel={() => setModalPair(null)} />
+    </LinkCtx.Provider>
+  );
+}
+
+function useProjects() {
+  const [projects, setProjects] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-projects", false);
+        setProjects(res ? JSON.parse(res.value) : PROJECTS_SEED);
+      } catch {
+        setProjects(PROJECTS_SEED);
+      }
+      setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      window.storage.set("okr-projects", JSON.stringify(projects), false).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [projects, loaded]);
+  return [projects, setProjects, loaded];
+}
+
+function ProjectMiniCard({ project, link }) {
+  const t = useT();
+  const description = useDataT(project.description);
+  const filledKrs = project.krs.filter((k) => !!k.text);
+  const body = (
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 space-y-1 min-w-0">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 min-w-0">
+        <Briefcase size={12} className="shrink-0" />
+        <span className="break-words min-w-0">{t("Проект/Инициатива")} — {project.name || t("без названия")}</span>
+      </div>
+      {(project.division || project.function) && (
+        <div className="t11 text-indigo-400 break-words">
+          {[project.division, project.function].filter(Boolean).join(" · ")}
+        </div>
+      )}
+      {project.description && <div className="text-sm text-neutral-700 whitespace-pre-wrap break-words">{description}</div>}
+      {filledKrs.length > 0 && (
+        <div className="space-y-0.5 pt-0.5">
+          {filledKrs.map((k) => (
+            <div key={k.id} className="flex items-start gap-1.5 text-xs text-neutral-600 min-w-0">
+              <Circle size={5} className="text-indigo-300 shrink-0 mt-1" />
+              <span className="break-words min-w-0"><TranslatedText text={k.text} /></span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  return link ? <Linkable link={link}>{body}</Linkable> : body;
+}
+
+function TrackProjects({ trackId, trackName }) {
+  const t = useT();
+  const [projects, , loaded] = useProjects();
+  if (!loaded || !projects) return null;
+  const list = projects.filter((p) => p.trackIds.includes(trackId));
+  if (list.length === 0) return null;
+  return (
+    <Collapsible title={t("Проекты / инициативы трека")} icon={<Briefcase size={13} />} tone={TONES.project}>
+      <div className="space-y-1.5">
+        {list.map((p) => (
+          <ProjectMiniCard
+            key={p.id}
+            project={p}
+            link={{ trackId, trackName, itemId: `project-${p.id}`, itemLabel: `Проект/Инициатива — ${truncate(p.name)}` }}
+          />
+        ))}
+      </div>
+    </Collapsible>
+  );
+}
+
+
+function MonthSpark({ activity }) {
+  const t = useT();
+  const MLABELS = ["Я", "Ф", "М", "А", "М", "И", "И", "А", "С", "О", "Н", "Д"];
+  return (
+    <div className="flex items-end gap-0.5 h-4" title={t("Активность по месяцам 2026")}>
+      {activity.map((v, i) => (
+        <div
+          key={i}
+          className={`rounded-sm ${v ? "bg-neutral-400" : "bg-neutral-150"}`}
+          style={{ width: 7, height: v ? "100%" : "25%", background: v ? undefined : "#e5e5e5" }}
+          title={MLABELS[i]}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ProjectCard({ project, onChange, onDelete }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const color = STATUS_COLORS[project.statusCode] || "#94a3b8";
+
+  const update = (field, value) => onChange({ ...project, [field]: value });
+
+  const addKr = () => update("krs", [...project.krs, { id: newId(), text: "" }]);
+  const updateKr = (id, text) => update("krs", project.krs.map((k) => (k.id === id ? { ...k, text } : k)));
+  const removeKr = (id) => update("krs", project.krs.filter((k) => k.id !== id));
+
+  const toggleTrack = (trackId) => {
+    const has = project.trackIds.includes(trackId);
+    if (has) {
+      update("trackIds", project.trackIds.filter((t) => t !== trackId));
+    } else if (project.trackIds.length < MAX_PROJECT_TRACKS) {
+      update("trackIds", [...project.trackIds, trackId]);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-neutral-200 overflow-hidden bg-white">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-neutral-50">
+        {open ? <ChevronDown size={15} className="text-neutral-400 shrink-0 mt-0.5" /> : <ChevronRight size={15} className="text-neutral-400 shrink-0 mt-0.5" />}
+        <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: color }} title={project.status} />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-neutral-800 break-words">{project.name}</div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 t11 text-neutral-400">
+            <span>{project.division}</span>
+            <span>·</span>
+            <span>{project.function}</span>
+            {project.launchMonth && (
+              <>
+                <span>·</span>
+                <span>{t("старт")} {project.launchMonth}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 mt-1">
+          {project.trackIds.map((tid) => (
+            <span key={tid} className="w-2 h-2 rounded-full" style={{ background: TRACK_COLORS[tid] }} title={TRACKS.find((t) => t.id === tid)?.name} />
+          ))}
+          <MonthSpark activity={project.activity} />
+        </div>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 space-y-3 border-t border-neutral-100">
+          <div>
+            <div className="text-xs text-neutral-500 mb-1">{t("Описание проекта")}</div>
+            <textarea
+              className="w-full text-sm bg-neutral-50 border border-neutral-200 rounded-lg p-2 outline-none resize-none"
+              rows={2}
+              placeholder={t("Кратко опишите проект…")}
+              value={project.description}
+              onChange={(e) => update("description", e.target.value)}
+            />
+            <FieldPreview value={project.description} />
+          </div>
+
+          <div>
+            <div className="text-xs text-neutral-500 mb-1">
+              {t("Каким трекам помогает")} ({project.trackIds.length}/{MAX_PROJECT_TRACKS})
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {TRACKS.map((tr) => {
+                const active = project.trackIds.includes(tr.id);
+                const disabled = !active && project.trackIds.length >= MAX_PROJECT_TRACKS;
+                return (
+                  <button
+                    key={tr.id}
+                    disabled={disabled}
+                    onClick={() => toggleTrack(tr.id)}
+                    className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border disabled:opacity-35 disabled:cursor-not-allowed"
+                    style={
+                      active
+                        ? { background: TRACK_COLORS[tr.id] + "18", borderColor: TRACK_COLORS[tr.id], color: TRACK_COLORS[tr.id] }
+                        : { borderColor: "#e5e5e5", color: "#737373" }
+                    }
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: TRACK_COLORS[tr.id] }} />
+                    {tr.name}
+                    {active && <span className="ml-0.5">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs text-neutral-500 mb-1">{t("KR проекта")}</div>
+            <div className="space-y-1">
+              {project.krs.map((k, i) => (
+                <div key={k.id}>
+                  <div className="flex items-center gap-1.5">
+                    <Circle size={6} className="text-neutral-300 shrink-0" />
+                    <input
+                      className="flex-1 text-sm bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1 outline-none"
+                      placeholder={`KR ${i + 1}`}
+                      value={k.text}
+                      onChange={(e) => updateKr(k.id, e.target.value)}
+                    />
+                    <button onClick={() => removeKr(k.id)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                  <div className="pl-4"><FieldPreview value={k.text} /></div>
+                </div>
+              ))}
+            </div>
+            <button onClick={addKr} className="mt-1.5 flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-800">
+              <Plus size={12} /> {t("добавить KR")}
+            </button>
+          </div>
+
+          <button onClick={onDelete} className="text-xs text-neutral-300 hover:text-red-500">
+            {t("Удалить проект")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectsModule() {
+  const t = useT();
+  const [projects, setProjects, loaded] = useProjects();
+  const [query, setQuery] = useState("");
+  const [divisionFilter, setDivisionFilter] = useState("");
+  const [trackFilter, setTrackFilter] = useState("");
+
+  if (!loaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+
+  const updateProject = (updated) => {
+    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  };
+  const deleteProject = (id) => {
+    setProjects((prev) => prev.filter((p) => p.id !== id));
+  };
+  const addProject = () => {
+    setProjects((prev) => [
+      {
+        id: newId(), division: "", function: "", name: "", status: "В плане", statusCode: "G",
+        launchMonth: null, activity: Array(12).fill(0), description: "", krs: [], trackIds: [],
+      },
+      ...prev,
+    ]);
+  };
+
+  const divisions = Array.from(new Set(projects.map((p) => p.division).filter(Boolean))).sort();
+
+  const filtered = projects.filter((p) => {
+    if (divisionFilter && p.division !== divisionFilter) return false;
+    if (trackFilter && !p.trackIds.includes(trackFilter)) return false;
+    if (query && !(`${p.name} ${p.function} ${p.division}`.toLowerCase().includes(query.toLowerCase()))) return false;
+    return true;
+  });
+
+  const linkedCount = projects.filter((p) => p.trackIds.length > 0).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-1">
+        <div className="text-xs text-neutral-400">
+          {projects.length} {t("проектов")} · {t("связаны с треками")} — {linkedCount}
+        </div>
+        <button onClick={addProject} className="flex items-center gap-1 text-xs text-yellow-700 hover:text-yellow-900">
+          <Plus size={13} /> {t("добавить проект")}
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 justify-center">
+        {TRACKS.map((tr) => {
+          const count = projects.filter((p) => p.trackIds.includes(tr.id)).length;
+          const active = trackFilter === tr.id;
+          return (
+            <button
+              key={tr.id}
+              onClick={() => setTrackFilter(active ? "" : tr.id)}
+              className="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 border"
+              style={
+                active
+                  ? { background: TRACK_COLORS[tr.id] + "18", borderColor: TRACK_COLORS[tr.id], color: TRACK_COLORS[tr.id] }
+                  : { borderColor: "#e5e5e5", color: "#737373" }
+              }
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TRACK_COLORS[tr.id] }} />
+              {tr.name} <span className="text-neutral-400">{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-2">
+        <div className="flex-1 flex items-center gap-1.5 bg-neutral-50 border border-neutral-200 rounded-lg px-2.5 py-1.5">
+          <Search size={13} className="text-neutral-400 shrink-0" />
+          <input
+            className="flex-1 bg-transparent outline-none text-sm placeholder-neutral-400"
+            placeholder={t("Поиск по названию, функции, дивизиону…")}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <select
+          value={divisionFilter}
+          onChange={(e) => setDivisionFilter(e.target.value)}
+          className="text-sm border border-neutral-200 rounded-lg px-2 bg-neutral-50"
+        >
+          <option value="">{t("Все дивизионы")}</option>
+          {divisions.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-1.5">
+        {filtered.length === 0 ? (
+          <div className="text-sm text-neutral-400 text-center py-8 border border-dashed border-neutral-200 rounded-xl">
+            {t("Ничего не найдено")}
+          </div>
+        ) : (
+          filtered.map((p) => (
+            <ProjectCard key={p.id} project={p} onChange={updateProject} onDelete={() => deleteProject(p.id)} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function collectTrackers(trackId, trackName, data, directory) {
+  const items = [];
+  (data.ultimateObjectives || []).forEach((uo) => {
+  (uo.krOutcomes || []).forEach((o) => {
+    if (o.tracking) {
+      items.push({
+        key: `outcome-${o.id}`, trackId, trackName, level: "KR Outcome (18 мес.)",
+        title: o.text || o.label, owner: ownerNameById(directory, o.objectiveOwner), tracking: o.tracking,
+      });
+    }
+    (o.krOutputs || []).forEach((ko) => {
+      if (ko.tracking) {
+        items.push({
+          key: `output-${ko.id}`, trackId, trackName, level: `${ko.label} (18 мес.)`,
+          title: ko.text || ko.label, owner: "", tracking: ko.tracking,
+        });
+      }
+      (ko.waves || []).forEach((w) => {
+        (w.quarters || []).forEach((q) => {
+          if (q.tracking) {
+            items.push({
+              key: `quarter-${q.id}`, trackId, trackName, level: `KR-веха (${q.label})`,
+              title: q.milestone || tSync("без названия"), owner: ownerNameById(directory, q.objectiveOwner), tracking: q.tracking,
+            });
+          }
+          (q.monthlyKRs || []).forEach((m) => {
+            if (m.tracking) {
+              items.push({
+                key: `month-${m.id}`, trackId, trackName, level: `KR месяца (${m.label})`,
+                title: m.text || m.label, owner: "", tracking: m.tracking,
+              });
+            }
+          });
+        });
+      });
+    });
+  });
+  });
+  return items;
+}
+
+function quarterHasTracking(q) {
+  return !!q.tracking || (q.monthlyKRs || []).some((m) => !!m.tracking);
+}
+function outputHasTracking(ko) {
+  return !!ko.tracking || (ko.waves || []).some((w) => (w.quarters || []).some(quarterHasTracking));
+}
+function outcomeHasTracking(o) {
+  return !!o.tracking || (o.krOutputs || []).some(outputHasTracking);
+}
+function ultimateObjectiveHasTracking(uo) {
+  return (uo.krOutcomes || []).some(outcomeHasTracking);
+}
+
+function TrackerBar({ tracking, horizonMonths }) {
+  const t = useT();
+  const { fact, pct } = computeTracking(tracking);
+  const status = trackingStatus(pct);
+  const startDate = tracking.startDate || todayISO();
+  const deadline = tracking.deadlineOverride || addMonthsISO(startDate, horizonMonths || 1);
+  const daysLeft = daysBetweenISO(todayISO(), deadline);
+  const urgency = deadlineUrgency(daysLeft);
+  return (
+    <div className="space-y-0.5 mt-1">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+          <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, pct * 100))}%`, background: status.color }} />
+        </div>
+        <span className="text-xs shrink-0" style={{ color: status.color }}>
+          {fact.toFixed(1)}/{tracking.target} · {(pct * 100).toFixed(0)}% · {t(status.label)}
+        </span>
+      </div>
+      <div className="t11" style={{ color: urgency.color }}>
+        {t("Срок")} {formatDateRu(deadline)} ·{" "}
+        {daysLeft < 0 ? `${t("просрочено на")} ${Math.abs(daysLeft)} ${t("дн.")}` : `${t("осталось")} ${daysLeft} ${t("дн.")}`}
+      </div>
+    </div>
+  );
+}
+
+function DashboardNode({ level, title, owner, tracking, horizonMonths, borderColor, children }) {
+  const displayTitle = useDataT(title);
+  return (
+    <div className="pl-3 space-y-1.5" style={{ borderLeftWidth: 2, borderLeftColor: borderColor }}>
+      <div>
+        <div className="t11 text-neutral-400">{level}{owner && ` · ${owner}`}</div>
+        <div className="text-sm text-neutral-800 break-words">{displayTitle}</div>
+        {tracking && <TrackerBar tracking={tracking} horizonMonths={horizonMonths} />}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DashboardQuarter({ quarter, waveLabel }) {
+  const t = useT();
+  if (!quarterHasTracking(quarter)) return null;
+  const months = (quarter.monthlyKRs || []).filter((m) => !!m.tracking);
+  return (
+    <DashboardNode level={`${t("KR-веха")} · ${quarter.label} (${waveLabel})`} title={quarter.milestone || t("без названия")} tracking={quarter.tracking} horizonMonths={3} borderColor="#fecdd3">
+      {months.map((m) => (
+        <DashboardNode key={m.id} level={`${t("KR месяца")} · ${m.label}`} title={m.text || m.label} tracking={m.tracking} horizonMonths={1} borderColor="#e5e5e5" />
+      ))}
+    </DashboardNode>
+  );
+}
+
+function DashboardOutput({ output }) {
+  const t = useT();
+  if (!outputHasTracking(output)) return null;
+  const quarterBlocks = [];
+  (output.waves || []).forEach((w) => {
+    (w.quarters || []).forEach((q) => {
+      if (quarterHasTracking(q)) quarterBlocks.push({ q, waveLabel: w.periodLabel });
+    });
+  });
+  return (
+    <DashboardNode level={`${output.label} · 18 ${t("мес.")}`} title={output.text || output.label} tracking={output.tracking} horizonMonths={18} borderColor="#e5e5e5">
+      {quarterBlocks.map(({ q, waveLabel }) => <DashboardQuarter key={q.id} quarter={q} waveLabel={waveLabel} />)}
+    </DashboardNode>
+  );
+}
+
+function DashboardOutcome({ outcome, directory }) {
+  const t = useT();
+  if (!outcomeHasTracking(outcome)) return null;
+  const outputs = (outcome.krOutputs || []).filter(outputHasTracking);
+  return (
+    <DashboardNode
+      level={`KR Outcome · 18 ${t("мес.")}`} title={outcome.text || outcome.label}
+      owner={ownerNameById(directory, outcome.objectiveOwner)} tracking={outcome.tracking} horizonMonths={18} borderColor="#fde68a"
+    >
+      {outputs.map((ko) => <DashboardOutput key={ko.id} output={ko} />)}
+    </DashboardNode>
+  );
+}
+
+function TrackingDashboard() {
+  const t = useT();
+  const [tracksData, loaded] = useAllTracksData();
+  const directory = useDirectoryList();
+  const [trackFilter, setTrackFilter] = useState("");
+
+  if (!loaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+
+  let items = [];
+  TRACKS.forEach((tr) => {
+    items.push(...collectTrackers(tr.id, tr.name, tracksData[tr.id], directory));
+  });
+  items = items.map((it) => ({ ...it, ...computeTracking(it.tracking) }));
+  const filteredItems = trackFilter ? items.filter((it) => it.trackId === trackFilter) : items;
+
+  const avgPct = filteredItems.length ? filteredItems.reduce((s, it) => s + it.pct, 0) / filteredItems.length : 0;
+  const counts = { onTrack: 0, atRisk: 0, behind: 0 };
+  filteredItems.forEach((it) => {
+    if (it.pct >= 0.9) counts.onTrack++;
+    else if (it.pct >= 0.5) counts.atRisk++;
+    else counts.behind++;
+  });
+
+  const tracksToShow = TRACKS.filter((tr) => !trackFilter || tr.id === trackFilter).filter((tr) =>
+    (tracksData[tr.id].ultimateObjectives || []).some(ultimateObjectiveHasTracking)
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-2">
+        <div className="rounded-xl border border-neutral-200 p-2.5 text-center">
+          <div className="text-lg font-semibold text-neutral-800">{filteredItems.length}</div>
+          <div className="t11 text-neutral-400">{t("KR под трекингом")}</div>
+        </div>
+        <div className="rounded-xl border border-neutral-200 p-2.5 text-center">
+          <div className="text-lg font-semibold text-neutral-800">{Math.round(avgPct * 100)}%</div>
+          <div className="t11 text-neutral-400">{t("средний прогресс")}</div>
+        </div>
+        <div className="rounded-xl border border-neutral-200 p-2.5 text-center">
+          <div className="text-lg font-semibold text-emerald-600">{counts.onTrack}</div>
+          <div className="t11 text-neutral-400">{t("на треке")}</div>
+        </div>
+        <div className="rounded-xl border border-neutral-200 p-2.5 text-center">
+          <div className="text-lg font-semibold text-red-500">{counts.behind}</div>
+          <div className="t11 text-neutral-400">{t("отстают")}</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 justify-center">
+        {TRACKS.map((tr) => {
+          const active = trackFilter === tr.id;
+          return (
+            <button
+              key={tr.id}
+              onClick={() => setTrackFilter(active ? "" : tr.id)}
+              className="flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 border"
+              style={
+                active
+                  ? { background: TRACK_COLORS[tr.id] + "18", borderColor: TRACK_COLORS[tr.id], color: TRACK_COLORS[tr.id] }
+                  : { borderColor: "#e5e5e5", color: "#737373" }
+              }
+            >
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TRACK_COLORS[tr.id] }} />
+              {tr.name}
+            </button>
+          );
+        })}
+      </div>
+
+      {tracksToShow.length === 0 ? (
+        <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
+          {t("Пока нет KR с включённым трекингом. Кнопка «добавить трекинг прогресса» доступна у KR Outcome, KR Output, KR-вехи квартала и KR месяца в любом треке.")}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {tracksToShow.map((tr) => (
+            <div key={tr.id} className="rounded-xl border border-neutral-200 p-3" style={{ borderLeftWidth: 4, borderLeftColor: TRACK_COLORS[tr.id] }}>
+              <div className="text-sm font-semibold mb-2" style={{ color: TRACK_COLORS[tr.id] }}>{tr.name}</div>
+              <div className="space-y-2">
+                {(tracksData[tr.id].ultimateObjectives || []).filter(ultimateObjectiveHasTracking).map((uo) => (
+                  uo.krOutcomes.filter(outcomeHasTracking).map((o) => (
+                    <DashboardOutcome key={o.id} outcome={o} directory={directory} />
+                  ))
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExportImportBar({ directory, setDirectory, onImported }) {
+  const t = useT();
+  const fileInputRef = useRef(null);
+  const [pendingImport, setPendingImport] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const handleExport = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildInstructionsRows()), "0. Инструкция");
+
+      const trackRows = [];
+      const structureRows = [];
+      const taskRows = [];
+      for (const t of TRACKS) {
+        let data;
+        try {
+          const res = await window.storage.get(`okr-track:${t.id}`, false);
+          data = res ? migrateTrackData(JSON.parse(res.value)) : createTrackData();
+        } catch {
+          data = createTrackData();
+        }
+        trackRows.push(buildTrackRow(t.name, data));
+        structureRows.push(...buildStructureRows(t.name, data, directory));
+        taskRows.push(...buildTaskRows(t.name, data, directory));
+      }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trackRows), "1. Треки");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(structureRows), "2. OKR - Структура");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(taskRows), "3. OKR - Задачи");
+
+      let projects = [];
+      try {
+        const res = await window.storage.get("okr-projects", false);
+        projects = res ? JSON.parse(res.value) : PROJECTS_SEED;
+      } catch {
+        projects = PROJECTS_SEED;
+      }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildProjectRows(projects)), "4. Проекты");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildProjectKrRows(projects)), "5. KR проектов");
+
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildDirectoryRows(directory || [])), "6. Справочник");
+
+      let links = [];
+      try {
+        const res = await window.storage.get("okr-links", false);
+        links = res ? JSON.parse(res.value) : [];
+      } catch {
+        links = [];
+      }
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(buildLinkRows(links)), "7. Связи");
+
+      XLSX.writeFile(wb, `Coral_Club_OKR_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      setMessage(t("Готово — файл скачан."));
+    } catch (e) {
+      setMessage(t("Ошибка экспорта: ") + e.message);
+    }
+    setBusy(false);
+  };
+
+  const handleFileSelected = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheet = (name) => (wb.Sheets[name] ? XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: "" }) : []);
+
+      const trackRows = sheet("1. Треки");
+      const structureRows = sheet("2. OKR - Структура");
+      const taskRows = sheet("3. OKR - Задачи");
+      const projectRows = sheet("4. Проекты");
+      const krRows = sheet("5. KR проектов");
+      const dirRows = sheet("6. Справочник");
+      const linkRows = sheet("7. Связи");
+
+      let currentDirectory = directory || [];
+      const newDirEntries = [];
+      const baseDirectory = rebuildDirectoryFromSheet(dirRows, currentDirectory);
+
+      const existingTracks = {};
+      for (const t of TRACKS) {
+        try {
+          const res = await window.storage.get(`okr-track:${t.id}`, false);
+          existingTracks[t.id] = res ? migrateTrackData(JSON.parse(res.value)) : createTrackData();
+        } catch {
+          existingTracks[t.id] = createTrackData();
+        }
+      }
+
+      const tracksById = {};
+      TRACKS.forEach((t) => {
+        const trow = trackRows.find((r) => normKey(r["Трек"]) === normKey(t.name));
+        tracksById[t.id] = rebuildTrackFromSheets(t.name, trow, structureRows, taskRows, existingTracks[t.id], baseDirectory, newDirEntries);
+      });
+
+      let existingProjects = [];
+      try {
+        const res = await window.storage.get("okr-projects", false);
+        existingProjects = res ? JSON.parse(res.value) : [];
+      } catch {
+        existingProjects = [];
+      }
+      const projects = rebuildProjectsFromSheets(projectRows, krRows, existingProjects);
+
+      const finalDirectory = [...baseDirectory, ...newDirEntries];
+      const newLinks = rebuildLinksFromSheet(linkRows);
+
+      setPendingImport({ tracksById, projects, directory: finalDirectory, links: newLinks, fileName: file.name });
+    } catch (e) {
+      setMessage(t("Не удалось прочитать файл: ") + e.message);
+    }
+    setBusy(false);
+  };
+
+
+  const applyImport = async () => {
+    if (!pendingImport) return;
+    setBusy(true);
+    try {
+      await Promise.all([
+        ...TRACKS.map((t) => window.storage.set(`okr-track:${t.id}`, JSON.stringify(pendingImport.tracksById[t.id]), false)),
+        window.storage.set("okr-projects", JSON.stringify(pendingImport.projects), false),
+        window.storage.set("okr-directory", JSON.stringify(pendingImport.directory), false),
+        window.storage.set("okr-links", JSON.stringify(pendingImport.links), false),
+      ]);
+      setDirectory(pendingImport.directory);
+      setMessage(t("Импортировано — данные обновлены."));
+      setPendingImport(null);
+      onImported();
+    } catch (e) {
+      setMessage(t("Ошибка импорта: ") + e.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="mb-4 border border-neutral-200 rounded-xl p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-600 mr-1">Excel</span>
+        <button
+          onClick={handleExport}
+          disabled={busy}
+          className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-50"
+        >
+          <Download size={12} /> {t("Скачать Excel")}
+        </button>
+        <button
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          disabled={busy}
+          className="flex items-center gap-1.5 text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50 disabled:opacity-50"
+        >
+          <Upload size={12} /> {t("Загрузить Excel")}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".xlsx" className="hidden" onChange={handleFileSelected} />
+        {message && <span className="text-xs text-neutral-400">{message}</span>}
+      </div>
+
+      {pendingImport && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-800 flex items-center justify-between gap-3 flex-wrap">
+          <span>
+            {t("Файл")} «{pendingImport.fileName}» {t("прочитан. Импорт заменит ВСЕ текущие данные (все треки, проекты, справочник, связи). Продолжить?")}
+          </span>
+          <div className="flex gap-1.5 shrink-0">
+            <button onClick={applyImport} disabled={busy} className="bg-amber-600 text-white rounded-md px-2.5 py-1">{t("Заменить")}</button>
+            <button onClick={() => setPendingImport(null)} disabled={busy} className="border border-amber-300 rounded-md px-2.5 py-1">{t("Отмена")}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Google Identity Services loader ----
+function loadGisScript() {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) {
+      resolve();
+      return;
+    }
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", reject);
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true;
+    s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function useGoogleAuth() {
+  const t = useT();
+  const [email, setEmail] = useState(null);
+  const [accessToken, setAccessToken] = useState(null);
+  const [gisReady, setGisReady] = useState(false);
+  const [error, setError] = useState("");
+  const tokenClientRef = useRef(null);
+
+  useEffect(() => {
+    loadGisScript()
+      .then(() => {
+        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: GOOGLE_SCOPES,
+          callback: async (resp) => {
+            if (resp.error) {
+              setError(t("Не удалось войти: ") + resp.error);
+              return;
+            }
+            setAccessToken(resp.access_token);
+            try {
+              const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                headers: { Authorization: `Bearer ${resp.access_token}` },
+              });
+              const info = await r.json();
+              setEmail((info.email || "").toLowerCase());
+            } catch {
+              setError(t("Вошли, но не удалось получить email."));
+            }
+          },
+        });
+        setGisReady(true);
+      })
+      .catch(() => setError(t("Не удалось загрузить Google Sign-In (проверьте интернет-соединение).")));
+  }, []);
+
+  const signIn = useCallback(() => {
+    setError("");
+    if (tokenClientRef.current) tokenClientRef.current.requestAccessToken({ prompt: "" });
+  }, []);
+
+  const signOut = useCallback(() => {
+    if (accessToken && window.google) {
+      window.google.accounts.oauth2.revoke(accessToken, () => {});
+    }
+    setAccessToken(null);
+    setEmail(null);
+  }, [accessToken]);
+
+  return { email, accessToken, gisReady, error, signIn, signOut, signedIn: !!accessToken && !!email };
+}
+
+// ---- Google Sheets REST helpers ----
+async function sheetsFetchTab(accessToken, spreadsheetId, tabName, rangeSuffix) {
+  const range = encodeURIComponent(`${tabName}!${rangeSuffix}`);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err.error && err.error.message) || `Ошибка чтения листа «${tabName}»`);
+  }
+  const data = await res.json();
+  return data.values || [];
+}
+
+function tSync(s) {
+  let lang = "ru";
+  try { lang = localStorage.getItem("okr-lang") || "ru"; } catch {}
+  return (lang === "en" && EN_DICT[s]) ? EN_DICT[s] : s;
+}
+
+async function sheetsWriteRow(accessToken, spreadsheetId, tabName, rowNumber, values) {
+  const range = encodeURIComponent(`${tabName}!A${rowNumber}:B${rowNumber}`);
+  const res = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ values: [values] }),
+    }
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = (err.error && err.error.message) || "";
+    if (res.status === 403 || /permission/i.test(msg)) {
+      throw new Error(tSync("Нет прав на изменение этих данных — обратитесь к администратору."));
+    }
+    throw new Error(msg || tSync("Не удалось сохранить данные в Google Таблице."));
+  }
+}
+
+// Drop-in replacement for the local window.storage API (same get/set/delete/list shape),
+// backed by a "Key | Value" tab in a shared Google Sheet. This lets every existing
+// hook in the app (useDirectory, useProjects, TrackEditor, etc.) keep working unchanged.
+function makeSheetsStorage(accessToken, spreadsheetId) {
+  let cache = null;
+  let cacheAt = 0;
+  const TTL = 4000;
+
+  async function loadMap(force) {
+    if (!force && cache && Date.now() - cacheAt < TTL) return cache;
+    const rows = await sheetsFetchTab(accessToken, spreadsheetId, APPDATA_TAB, "A2:B200");
+    const map = {};
+    rows.forEach((r, i) => {
+      const key = r[0];
+      if (key) map[key] = { row: i + 2, value: r[1] || "" };
+    });
+    cache = map;
+    cacheAt = Date.now();
+    return map;
+  }
+
+  return {
+    async get(key) {
+      const map = await loadMap(false);
+      const entry = map[key];
+      if (!entry || !entry.value) return null;
+      return { key, value: entry.value, shared: true };
+    },
+    async set(key, value) {
+      const map = await loadMap(false);
+      let entry = map[key];
+      if (!entry) {
+        const row = Object.keys(map).length + 2;
+        entry = { row };
+        map[key] = entry;
+      }
+      await sheetsWriteRow(accessToken, spreadsheetId, APPDATA_TAB, entry.row, [key, value]);
+      entry.value = value;
+      return { key, value, shared: true };
+    },
+    async delete(key) {
+      const map = await loadMap(false);
+      const entry = map[key];
+      if (entry) {
+        await sheetsWriteRow(accessToken, spreadsheetId, APPDATA_TAB, entry.row, [key, ""]);
+        entry.value = "";
+      }
+      return { key, deleted: true, shared: true };
+    },
+    async list(prefix) {
+      const map = await loadMap(false);
+      const keys = Object.keys(map).filter((k) => !prefix || k.startsWith(prefix));
+      return { keys, prefix, shared: true };
+    },
+  };
+}
+
+async function fetchUserPermission(accessToken, spreadsheetId, email) {
+  const rows = await sheetsFetchTab(accessToken, spreadsheetId, USERS_TAB, "A2:C200");
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  const match = rows.find((r) => norm(r[0]) === norm(email));
+  if (!match) return { known: false, trackId: null, isAdmin: false };
+  const trackLabel = norm(match[1]);
+  const role = norm(match[2]);
+  const isAdmin = trackLabel === "все" || trackLabel === "admin" || role === "админ" || role === "admin";
+  const track = TRACKS.find((t) => norm(t.name) === trackLabel || t.id === trackLabel);
+  return { known: true, trackId: track ? track.id : null, isAdmin };
+}
+
+const AuthCtx = createContext({ signedIn: false, isAdmin: false, myTrackId: null, email: null });
+function useAuthCtx() { return useContext(AuthCtx); }
+
+function LockOverlay({ locked, reason, children }) {
+  if (!locked) return children;
+  return (
+    <div className="relative">
+      <div style={{ pointerEvents: "none", opacity: 0.55 }}>{children}</div>
+      <div className="absolute inset-0 flex items-start justify-center pt-10 pointer-events-none">
+        <div className="bg-neutral-900 text-white text-xs px-3 py-1.5 rounded-full shadow-lg">🔒 {reason}</div>
+      </div>
+    </div>
+  );
+}
+
+function useDirectory(reloadToken) {
+  const [directory, setDirectory] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    setLoaded(false);
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-directory", false);
+        setDirectory(res ? JSON.parse(res.value) : []);
+      } catch {
+        setDirectory([]);
+      }
+      setLoaded(true);
+    })();
+  }, [reloadToken]);
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      window.storage.set("okr-directory", JSON.stringify(directory), false).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [directory, loaded]);
+  return [directory, setDirectory];
+}
+
+const TYPE_LABEL = { company: "Компания", department: "Отдел", function: "Функция" };
+const TYPE_COLOR = {
+  company: "bg-purple-100 text-purple-700",
+  department: "bg-sky-100 text-sky-700",
+  function: "bg-teal-100 text-teal-700",
+};
+
+function DirectoryManager({ directory, setDirectory }) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const [type, setType] = useState("function");
+  const [open, setOpen] = useState(false);
+
+  const add = () => {
+    if (!name.trim()) return;
+    setDirectory((prev) => [...prev, { id: newId(), name: name.trim(), type }]);
+    setName("");
+  };
+  const remove = (id) => setDirectory((prev) => prev.filter((d) => d.id !== id));
+
+  return (
+    <div className="mb-4 border border-neutral-200 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 bg-neutral-50 hover:bg-neutral-100">
+        {open ? <ChevronDown size={15} className="text-neutral-500" /> : <ChevronRight size={15} className="text-neutral-500" />}
+        <Users size={14} className="text-neutral-500" />
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-600">{t("Справочник: компания / отделы / функции")}</span>
+        <span className="text-xs text-neutral-400 ml-auto">{directory.length}</span>
+      </button>
+      {open && (
+        <div className="p-3 space-y-2">
+          <div className="flex gap-1.5">
+            <input
+              className="flex-1 text-sm border border-neutral-200 rounded-md px-2 py-1 outline-none"
+              placeholder={t("Название (например: Отдел маркетинга)")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+            />
+            <select value={type} onChange={(e) => setType(e.target.value)} className="text-sm border border-neutral-200 rounded-md px-1.5">
+              <option value="company">{t("Компания")}</option>
+              <option value="department">{t("Отдел")}</option>
+              <option value="function">{t("Функция")}</option>
+            </select>
+            <button onClick={add} className="px-2.5 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-800">
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="space-y-1 max-h-56 overflow-y-auto">
+            {directory.length === 0 && (
+              <div className="text-xs text-neutral-400 py-2 text-center">{t("Справочник пуст — добавьте функции, отделы или компанию")}</div>
+            )}
+            {directory.map((d) => (
+              <div key={d.id} className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-neutral-50">
+                <span className={`t10 px-1.5 py-0.5 rounded ${TYPE_COLOR[d.type]}`}>{t(TYPE_LABEL[d.type])}</span>
+                <span className="text-sm flex-1 min-w-0 break-words">{d.name}</span>
+                <button onClick={() => remove(d.id)} className="text-neutral-300 hover:text-red-500 p-0.5">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function useSheetSync() {
+  const t = useT();
+  const auth = useGoogleAuth();
+  const [spreadsheetId, setSpreadsheetIdState] = useState(() => {
+    try { return localStorage.getItem(SHEET_ID_STORAGE_KEY) || ""; } catch { return ""; }
+  });
+  const [permission, setPermission] = useState({ known: false, trackId: null, isAdmin: false });
+  const [permError, setPermError] = useState("");
+  const [connected, setConnected] = useState(false);
+
+  const setSpreadsheetId = useCallback((id) => {
+    setSpreadsheetIdState(id);
+    try { localStorage.setItem(SHEET_ID_STORAGE_KEY, id); } catch {}
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!auth.signedIn || !spreadsheetId) {
+      setConnected(false);
+      return;
+    }
+    (async () => {
+      try {
+        const perm = await fetchUserPermission(auth.accessToken, spreadsheetId, auth.email);
+        if (cancelled) return;
+        setPermission(perm);
+        setPermError(perm.known ? "" : `${t("Email")} ${auth.email} ${t("не найден на листе")} «${USERS_TAB}» — ${t("обратитесь к администратору.")}`);
+        window.storage = makeSheetsStorage(auth.accessToken, spreadsheetId);
+        setConnected(true);
+      } catch (e) {
+        if (!cancelled) {
+          setPermError(e.message || t("Не удалось подключиться к Google Таблице."));
+          setConnected(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [auth.signedIn, auth.accessToken, auth.email, spreadsheetId]);
+
+  return { auth, spreadsheetId, setSpreadsheetId, permission, permError, connected };
+}
+
+function GoogleSyncBar({ sync, onConnectedChange }) {
+  const t = useT();
+  const { auth, spreadsheetId, setSpreadsheetId, permission, permError, connected } = sync;
+  const [draftId, setDraftId] = useState(spreadsheetId);
+  const prevConnected = useRef(connected);
+
+  useEffect(() => {
+    if (connected !== prevConnected.current) {
+      prevConnected.current = connected;
+      onConnectedChange();
+    }
+  }, [connected, onConnectedChange]);
+
+  return (
+    <div className="mb-4 border border-neutral-200 rounded-xl p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-600 mr-1">{t("Google Таблица")}</span>
+        {!auth.signedIn ? (
+          <button
+            onClick={auth.signIn}
+            disabled={!auth.gisReady}
+            className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-50"
+          >
+            <Users size={12} /> {t("Войти через Google")}
+          </button>
+        ) : (
+          <>
+            <span className="text-xs text-neutral-600">{auth.email}</span>
+            {connected && (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{ background: permission.isAdmin ? "#ede9fe" : "#dcfce7", color: permission.isAdmin ? "#6d28d9" : "#15803d" }}
+              >
+                {permission.isAdmin ? t("Администратор") : permission.trackId ? `${t("Редактор")}: ${(TRACKS.find(tk=>tk.id===permission.trackId)||{}).name}` : t("Только просмотр")}
+              </span>
+            )}
+            <button onClick={auth.signOut} className="text-xs text-neutral-400 hover:text-red-500 underline">{t("выйти")}</button>
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          value={draftId}
+          onChange={(e) => setDraftId(e.target.value)}
+          placeholder={t("ID таблицы Google Sheets (из ссылки на таблицу)")}
+          className="flex-1 text-xs border border-neutral-200 rounded-md px-2 py-1.5 bg-neutral-50"
+          style={{ minWidth: 240 }}
+        />
+        <button
+          onClick={() => setSpreadsheetId(draftId.trim())}
+          className="text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50"
+        >
+          {t("Подключить")}
+        </button>
+      </div>
+
+      {(auth.error || permError) && (
+        <div className="text-xs text-red-600">{auth.error || permError}</div>
+      )}
+      {auth.signedIn && spreadsheetId && !connected && !permError && (
+        <div className="text-xs text-neutral-400">{t("Подключение к таблице…")}</div>
+      )}
+      <div className="text-xs text-neutral-400">
+        {t("Без входа приложение работает локально в этом браузере (демо-режим). Со входом — данные общие для всей команды, через вашу Google Таблицу.")}
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [trackId, setTrackId] = useState(TRACKS[0].id);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [directory, setDirectory] = useDirectory(refreshKey);
+  const sheetSync = useSheetSync();
+  const [lang, setLang] = useState(() => {
+    try { return localStorage.getItem("okr-lang") || "ru"; } catch { return "ru"; }
+  });
+  const toggleLang = () => {
+    setLang((l) => {
+      const next = l === "ru" ? "en" : "ru";
+      try { localStorage.setItem("okr-lang", next); } catch {}
+      return next;
+    });
+  };
+  const t = (s) => (lang === "en" && EN_DICT[s]) ? EN_DICT[s] : s;
+
+  const authCtxValue = {
+    signedIn: sheetSync.connected,
+    isAdmin: sheetSync.connected && sheetSync.permission.isAdmin,
+    myTrackId: sheetSync.connected ? sheetSync.permission.trackId : null,
+    email: sheetSync.auth.email,
+  };
+
+  return (
+    <LanguageCtx.Provider value={lang}>
+    <div className="w-full bg-white text-neutral-900">
+      <style>{`.t11{font-size:11px;line-height:1.35}.t10{font-size:10px;line-height:1.3}`}</style>
+      <div className="w-full px-3 sm:px-6 lg:px-10 py-6">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-medium">{t("OKR-конструктор трека")}</h1>
+            <p className="text-sm text-neutral-500 mt-0.5 max-w-3xl">
+              {t("Волна 1–6 мес. декомпозируется сразу. Волны 7–12 и 13–18 стартуют как цель-ориентир — раскладывайте их на контрольной точке, ближе к делу. У каждого Objective — владелец, у каждой задачи — ответственный из справочника.")}
+            </p>
+          </div>
+          <button
+            onClick={toggleLang}
+            className="shrink-0 flex items-center gap-1 text-xs border border-neutral-200 rounded-full px-3 py-1.5 hover:bg-neutral-50"
+            title="Switch language / Переключить язык"
+          >
+            🌐 {lang === "ru" ? "RU / EN" : "EN / RU"}
+          </button>
+        </div>
+
+        <GoogleSyncBar sync={sheetSync} onConnectedChange={() => setRefreshKey((k) => k + 1)} />
+
+        <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
+
+        <LockOverlay locked={!authCtxValue.isAdmin} reason={t("Справочник редактирует администратор")}>
+          <DirectoryManager directory={directory} setDirectory={setDirectory} />
+        </LockOverlay>
+
+        <div className="flex gap-1 mb-4 flex-wrap">
+          {TRACKS.map((t) => {
+            const color = TRACK_COLORS[t.id];
+            const active = trackId === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTrackId(t.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border"
+                style={
+                  active
+                    ? { background: color, borderColor: color, color: "#fff" }
+                    : { background: color + "14", borderColor: color + "40", color }
+                }
+              >
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: active ? "#fff" : color }} />
+                {t.name}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setTrackId("combined")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+              trackId === "combined" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+            }`}
+          >
+            <Network size={13} /> {t("Общее дерево OKR")}
+          </button>
+          <button
+            onClick={() => setTrackId("projects")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+              trackId === "projects" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+            }`}
+          >
+            <Briefcase size={13} /> {t("Проекты")}
+          </button>
+          <button
+            onClick={() => setTrackId("dashboard")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+              trackId === "dashboard" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+            }`}
+          >
+            <BarChart3 size={13} /> {t("Дашборд трекинга")}
+          </button>
+        </div>
+
+        <AuthCtx.Provider value={authCtxValue}>
+        <DirectoryCtx.Provider value={directory}>
+          {trackId === "combined" ? (
+            <CombinedTree key={`combined-${refreshKey}`} />
+          ) : trackId === "projects" ? (
+            <LockOverlay locked={!authCtxValue.isAdmin} reason={t("Проекты редактирует администратор")}>
+              <ProjectsModule key={`projects-${refreshKey}`} />
+            </LockOverlay>
+          ) : trackId === "dashboard" ? (
+            <TrackingDashboard key={`dashboard-${refreshKey}`} />
+          ) : (
+            <LockOverlay
+              locked={!(authCtxValue.isAdmin || authCtxValue.myTrackId === trackId)}
+              reason={
+                !authCtxValue.signedIn
+                  ? t("Войдите через Google, чтобы редактировать")
+                  : authCtxValue.myTrackId
+                  ? t("Доступен только просмотр — это не ваш трек")
+                  : t("Ваш email не назначен ни на один трек — обратитесь к администратору")
+              }
+            >
+              <TrackEditor key={`${trackId}-${refreshKey}`} trackId={trackId} />
+            </LockOverlay>
+          )}
+        </DirectoryCtx.Provider>
+        </AuthCtx.Provider>
+      </div>
+    </div>
+    </LanguageCtx.Provider>
+  );
+}

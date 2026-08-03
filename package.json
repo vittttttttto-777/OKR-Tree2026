@@ -1,0 +1,16 @@
+{
+  "name": "coral-club-okr",
+  "private": true,
+  "scripts": {
+    "build": "esbuild entry.jsx --bundle --minify --outfile=bundle.js --loader:.js=jsx --jsx=automatic"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.383.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.21.5"
+  }
+}

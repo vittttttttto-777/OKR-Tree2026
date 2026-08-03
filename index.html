@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OKR-конструктор трека — Coral Club</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#1F4E3D">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #ffffff; }
+  #root { min-height: 100vh; }
+</style>
+<script>
+  // Local, browser-only stand-in for the Claude-artifact "window.storage" API.
+  // Same shape (get/set/delete/list), backed by this browser's localStorage —
+  // so each visitor keeps their own private copy of the data on their own device.
+  (function () {
+    var PREFIX = "okr-app:";
+    function safe(fn, fallback) {
+      try { return fn(); } catch (e) { return fallback; }
+    }
+    window.storage = {
+      get: function (key) {
+        return Promise.resolve(safe(function () {
+          var raw = localStorage.getItem(PREFIX + key);
+          if (raw === null) return null;
+          return { key: key, value: raw, shared: false };
+        }, null));
+      },
+      set: function (key, value) {
+        return Promise.resolve(safe(function () {
+          localStorage.setItem(PREFIX + key, value);
+          return { key: key, value: value, shared: false };
+        }, null));
+      },
+      delete: function (key) {
+        return Promise.resolve(safe(function () {
+          localStorage.removeItem(PREFIX + key);
+          return { key: key, deleted: true, shared: false };
+        }, null));
+      },
+      list: function (prefix) {
+        return Promise.resolve(safe(function () {
+          var p = PREFIX + (prefix || "");
+          var keys = [];
+          for (var i = 0; i < localStorage.length; i++) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf(p) === 0) keys.push(k.slice(PREFIX.length));
+          }
+          return { keys: keys, prefix: prefix, shared: false };
+        }, null));
+      },
+    };
+  })();
+</script>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="bundle.js"></script>
+</body>
+</html>
