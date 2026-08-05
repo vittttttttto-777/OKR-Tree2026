@@ -4369,9 +4369,14 @@ function GanttChart() {
 
   let rows = [];
   TRACKS.forEach((tr) => {
-    rows.push(...buildFullGanttRows(tr.id, tr.name, tracksData[tr.id], maxDepth));
+    const trackRows = buildFullGanttRows(tr.id, tr.name, tracksData[tr.id], maxDepth);
+    if (trackRows.length > 0 && !trackFilter) {
+      rows.push({ id: `header-${tr.id}`, isTrackHeader: true, trackId: tr.id, trackName: tr.name });
+    }
+    rows.push(...trackRows);
   });
   const filtered = trackFilter ? rows.filter((r) => r.trackId === trackFilter) : rows;
+  const dataRows = filtered.filter((r) => !r.isTrackHeader);
   // no re-sort: rows come out of buildFullGanttRows already in strict parent→children order per track,
   // which is required for the tree-guide lines below to line up correctly.
 
@@ -4406,7 +4411,7 @@ function GanttChart() {
     </div>
   );
 
-  if (filtered.length === 0) {
+  if (dataRows.length === 0) {
     return (
       <div className="space-y-3">
         {trackControl}
@@ -4418,8 +4423,8 @@ function GanttChart() {
     );
   }
 
-  const rangeStartRaw = filtered.reduce((min, r) => (r.start < min ? r.start : min), filtered[0].start);
-  const rangeEndRaw = filtered.reduce((max, r) => (r.end > max ? r.end : max), filtered[0].end);
+  const rangeStartRaw = dataRows.reduce((min, r) => (r.start < min ? r.start : min), dataRows[0].start);
+  const rangeEndRaw = dataRows.reduce((max, r) => (r.end > max ? r.end : max), dataRows[0].end);
   const padStart = new Date(rangeStartRaw + "T00:00:00"); padStart.setDate(padStart.getDate() - 7);
   const padEnd = new Date(rangeEndRaw + "T00:00:00"); padEnd.setDate(padEnd.getDate() + 7);
   const rangeStart = padStart.toISOString().slice(0, 10);
@@ -4457,10 +4462,23 @@ function GanttChart() {
 
         <div className="divide-y divide-neutral-100 overflow-y-auto" style={{ maxHeight: "70vh" }}>
           {filtered.map((r) => {
+            if (r.isTrackHeader) {
+              return (
+                <div
+                  key={r.id} className="flex items-center px-2 sticky top-0 z-10"
+                  style={{ background: TRACK_COLORS[r.trackId] + "14", paddingTop: 6, paddingBottom: 6 }}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: TRACK_COLORS[r.trackId] }}>
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: TRACK_COLORS[r.trackId] }} />
+                    {r.trackName}
+                  </div>
+                </div>
+              );
+            }
             const barLeft = clamp01to100((daysBetweenISO(rangeStart, r.start) / totalDays) * 100);
             const barRight = clamp01to100((daysBetweenISO(rangeStart, r.end) / totalDays) * 100);
             const daysLeft = daysBetweenISO(todayISO(), r.end);
-            const barColor = r.tracked ? deadlineUrgency(daysLeft).color : TRACK_COLORS[r.trackId] + "70";
+            const barColor = r.tracked ? deadlineUrgency(daysLeft).color : "#c4c4c4";
             return (
               <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50" style={{ paddingTop: 5, paddingBottom: 5 }}>
                 <TreeGutter depth={r.depth} guides={r.guides} isLast={r.isLast} />
@@ -4500,7 +4518,7 @@ function GanttChart() {
         <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#16a34a" }} />{t("В графике")}</span>
         <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#ca8a04" }} />{t("Скоро")}</span>
         <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#dc2626" }} />{t("Критично")} / {t("Просрочено")}</span>
-        <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#9ca3af" }} />{t("план (без трекинга)")}</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-full mr-1" style={{ background: "#c4c4c4" }} />{t("план (без трекинга)")}</span>
         <span><span className="inline-block w-2 h-2.5 mr-1" style={{ borderLeft: "1px solid #171717" }} />{t("сегодня")}</span>
       </div>
     </div>
