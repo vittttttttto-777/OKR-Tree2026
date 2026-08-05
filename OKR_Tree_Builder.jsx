@@ -4103,52 +4103,84 @@ function waveHasAnyContent(w) {
 
 // Walks the whole tree for one track — mission down to tasks — producing flat Gantt rows.
 // maxDepth caps how deep to recurse: 0=главные цели … 6=задачи.
+function lastVisibleIndex(arr, hasContentFn) {
+  let last = -1;
+  arr.forEach((item, i) => { if (hasContentFn(item)) last = i; });
+  return last;
+}
+
 function buildFullGanttRows(trackId, trackName, data, maxDepth) {
   const rows = [];
   const trackStart = data.startDate || todayISO();
+  const uos = data.ultimateObjectives || [];
+  const uoLastIdx = lastVisibleIndex(uos, ultimateObjectiveHasContent);
 
-  (data.ultimateObjectives || []).forEach((uo, ui) => {
+  uos.forEach((uo, ui) => {
     if (!ultimateObjectiveHasContent(uo)) return;
+    const uoIsLast = ui === uoLastIdx;
+    const uoGuides = [];
     const uoRange = rangeFromOffset(trackStart, 0, 18);
-    rows.push({ id: `uo-${uo.id}`, depth: 0, trackId, trackName, levelKey: "Главная цель", levelExtra: `${ui + 1}`, title: uo.text, ...uoRange, tracked: false });
+    rows.push({ id: `uo-${uo.id}`, depth: 0, guides: uoGuides, isLast: uoIsLast, trackId, trackName, levelKey: "Главная цель", levelExtra: `${ui + 1}`, title: uo.text, ...uoRange, tracked: false });
     if (maxDepth < 1) return;
 
-    uo.krOutcomes.forEach((o) => {
+    const outcomes = uo.krOutcomes;
+    const oLastIdx = lastVisibleIndex(outcomes, outcomeHasContent);
+    outcomes.forEach((o, oi) => {
       if (!outcomeHasContent(o)) return;
+      const oIsLast = oi === oLastIdx;
+      const oGuides = [...uoGuides, !uoIsLast];
       const oRange = resolveRange(o.tracking, rangeFromOffset(trackStart, 0, 18), 18);
-      rows.push({ id: `o-${o.id}`, depth: 1, trackId, trackName, levelKey: "KR Outcome", levelExtra: "", title: o.text || o.label, ...oRange });
+      rows.push({ id: `o-${o.id}`, depth: 1, guides: oGuides, isLast: oIsLast, trackId, trackName, levelKey: "KR Outcome", levelExtra: "", title: o.text || o.label, ...oRange });
       if (maxDepth < 2) return;
 
-      o.krOutputs.forEach((ko) => {
+      const outputs = o.krOutputs;
+      const koLastIdx = lastVisibleIndex(outputs, outputHasContent);
+      outputs.forEach((ko, ki) => {
         if (!outputHasContent(ko)) return;
+        const koIsLast = ki === koLastIdx;
+        const koGuides = [...oGuides, !oIsLast];
         const koRange = resolveRange(ko.tracking, rangeFromOffset(trackStart, 0, 18), 18);
-        rows.push({ id: `ko-${ko.id}`, depth: 2, trackId, trackName, levelKey: ko.label, levelExtra: "", title: ko.text, ...koRange });
+        rows.push({ id: `ko-${ko.id}`, depth: 2, guides: koGuides, isLast: koIsLast, trackId, trackName, levelKey: ko.label, levelExtra: "", title: ko.text, ...koRange });
         if (maxDepth < 3) return;
 
-        ko.waves.forEach((w, wi) => {
+        const waves = ko.waves;
+        const wLastIdx = lastVisibleIndex(waves, waveHasAnyContent);
+        waves.forEach((w, wi) => {
           if (!waveHasAnyContent(w)) return;
+          const wIsLast = wi === wLastIdx;
+          const wGuides = [...koGuides, !koIsLast];
           const wRange = rangeFromOffset(trackStart, wi * 6, 6);
-          rows.push({ id: `w-${w.id}`, depth: 3, trackId, trackName, levelKey: "Волна", levelExtra: `${wi + 1}`, title: w.status === "decomposed" ? (w.objective6mo || "") : w.targetText, start: wRange.start, end: wRange.end, tracked: false });
+          rows.push({ id: `w-${w.id}`, depth: 3, guides: wGuides, isLast: wIsLast, trackId, trackName, levelKey: "Волна", levelExtra: `${wi + 1}`, title: w.status === "decomposed" ? (w.objective6mo || "") : w.targetText, start: wRange.start, end: wRange.end, tracked: false });
           if (maxDepth < 4 || w.status !== "decomposed") return;
 
-          w.quarters.forEach((q, qi) => {
+          const quarters = w.quarters;
+          const qLastIdx = lastVisibleIndex(quarters, quarterHasContent);
+          quarters.forEach((q, qi) => {
             if (!quarterHasContent(q)) return;
+            const qIsLast = qi === qLastIdx;
+            const qGuides = [...wGuides, !wIsLast];
             const qStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3, 3);
             const qRange = resolveRange(q.tracking, qStructural, 3);
-            rows.push({ id: `q-${q.id}`, depth: 4, trackId, trackName, levelKey: "Квартал", levelExtra: q.label, title: q.milestone || "", ...qRange });
+            rows.push({ id: `q-${q.id}`, depth: 4, guides: qGuides, isLast: qIsLast, trackId, trackName, levelKey: "Квартал", levelExtra: q.label, title: q.milestone || "", ...qRange });
             if (maxDepth < 5) return;
 
-            q.monthlyKRs.forEach((m, mi) => {
+            const months = q.monthlyKRs;
+            const mLastIdx = lastVisibleIndex(months, monthHasContent);
+            months.forEach((m, mi) => {
               if (!monthHasContent(m)) return;
+              const mIsLast = mi === mLastIdx;
+              const mGuides = [...qGuides, !qIsLast];
               const mStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3 + mi, 1);
               const mRange = resolveRange(m.tracking, mStructural, 1);
-              rows.push({ id: `m-${m.id}`, depth: 5, trackId, trackName, levelKey: "KR месяца", levelExtra: m.label, title: m.text || "", ...mRange });
+              rows.push({ id: `m-${m.id}`, depth: 5, guides: mGuides, isLast: mIsLast, trackId, trackName, levelKey: "KR месяца", levelExtra: m.label, title: m.text || "", ...mRange });
               if (maxDepth < 6) return;
 
               const tasks = m.tasks.filter((tk) => !!tk.text);
               tasks.forEach((tk, ti) => {
+                const tIsLast = ti === tasks.length - 1;
+                const tGuides = [...mGuides, !mIsLast];
                 const point = taskPointDate(mStructural.start, mStructural.end, ti, tasks.length);
-                rows.push({ id: `tk-${tk.id}`, depth: 6, trackId, trackName, levelKey: "Задача", levelExtra: "", title: tk.text, start: point, end: point, tracked: false, isTask: true });
+                rows.push({ id: `tk-${tk.id}`, depth: 6, guides: tGuides, isLast: tIsLast, trackId, trackName, levelKey: "Задача", levelExtra: "", title: tk.text, start: point, end: point, tracked: false, isTask: true });
               });
             });
           });
@@ -4297,6 +4329,24 @@ function DashboardOutcome({ outcome, directory }) {
   );
 }
 
+const GANTT_GUIDE_STEP = 14;
+function TreeGutter({ depth, guides, isLast }) {
+  if (depth === 0) return null;
+  const width = depth * GANTT_GUIDE_STEP;
+  return (
+    <div className="relative shrink-0" style={{ width, height: 30 }}>
+      {guides.slice(0, depth - 1).map((cont, i) => cont && (
+        <div key={i} className="absolute top-0 bottom-0" style={{ left: i * GANTT_GUIDE_STEP + GANTT_GUIDE_STEP / 2, width: 1, background: "#d4d4d4" }} />
+      ))}
+      <div className="absolute top-0" style={{ left: (depth - 1) * GANTT_GUIDE_STEP + GANTT_GUIDE_STEP / 2, width: 1, height: "50%", background: "#d4d4d4" }} />
+      {!isLast && (
+        <div className="absolute bottom-0" style={{ left: (depth - 1) * GANTT_GUIDE_STEP + GANTT_GUIDE_STEP / 2, width: 1, height: "50%", background: "#d4d4d4" }} />
+      )}
+      <div className="absolute" style={{ left: (depth - 1) * GANTT_GUIDE_STEP + GANTT_GUIDE_STEP / 2, top: "50%", width: GANTT_GUIDE_STEP / 2 + 4, height: 1, background: "#d4d4d4" }} />
+    </div>
+  );
+}
+
 const GANTT_DEPTH_LEVELS = [
   { value: 0, key: "Главные цели" },
   { value: 1, key: "KR Outcome" },
@@ -4322,7 +4372,8 @@ function GanttChart() {
     rows.push(...buildFullGanttRows(tr.id, tr.name, tracksData[tr.id], maxDepth));
   });
   const filtered = trackFilter ? rows.filter((r) => r.trackId === trackFilter) : rows;
-  filtered.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.depth - b.depth));
+  // no re-sort: rows come out of buildFullGanttRows already in strict parent→children order per track,
+  // which is required for the tree-guide lines below to line up correctly.
 
   const depthControl = (
     <div className="flex flex-wrap gap-1.5 justify-center">
@@ -4411,8 +4462,9 @@ function GanttChart() {
             const daysLeft = daysBetweenISO(todayISO(), r.end);
             const barColor = r.tracked ? deadlineUrgency(daysLeft).color : TRACK_COLORS[r.trackId] + "70";
             return (
-              <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50" style={{ paddingLeft: 8 + r.depth * 10, paddingTop: 5, paddingBottom: 5 }}>
-                <div style={{ width: 230 - r.depth * 10 }} className="shrink-0 pr-2 min-w-0">
+              <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50" style={{ paddingTop: 5, paddingBottom: 5 }}>
+                <TreeGutter depth={r.depth} guides={r.guides} isLast={r.isLast} />
+                <div style={{ width: 230 - r.depth * GANTT_GUIDE_STEP }} className="shrink-0 pr-2 min-w-0">
                   <div className="t10 text-neutral-400 flex items-center gap-1">
                     {r.depth === 0 && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TRACK_COLORS[r.trackId] }} />}
                     <span className="truncate">{r.depth === 0 ? r.trackName + " · " : ""}{t(r.levelKey)}{r.levelExtra ? ` ${r.levelExtra}` : ""}</span>
