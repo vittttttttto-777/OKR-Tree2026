@@ -5493,14 +5493,17 @@ function useRoleAuth() {
 }
 
 // Drop-in replacement for the local window.storage API — backed by Supabase.
-// Reads go direct to the table (open to view); writes go through okr_save_data,
-// which re-checks the role's password and permission on every single write.
+// Both reads AND writes now go through password-checked RPCs (okr_load_data / okr_save_data) —
+// the table itself has no direct SELECT grant for anon/authenticated, so an unauthenticated
+// visitor (or anyone with just the public anon key) can no longer read the data directly.
 function makeSupabaseStorage(session) {
   return {
     async get(key) {
-      const { data, error } = await supabase.from("okr_app_data").select("value").eq("key", key).maybeSingle();
-      if (error || !data || data.value == null) return null;
-      return { key, value: JSON.stringify(data.value), shared: true };
+      const { data, error } = await supabase.rpc("okr_load_data", {
+        p_role_id: session.roleId, p_password: session.password, p_key: key,
+      });
+      if (error || data == null) return null;
+      return { key, value: JSON.stringify(data), shared: true };
     },
     async set(key, value) {
       if (!session) throw new Error(tSync("Войдите, чтобы сохранять изменения."));
@@ -5518,43 +5521,24 @@ function makeSupabaseStorage(session) {
       return this.set(key, "null");
     },
     async list(prefix) {
-      let q = supabase.from("okr_app_data").select("key");
-      if (prefix) q = q.like("key", `${prefix}%`);
-      const { data, error } = await q;
+      const { data, error } = await supabase.rpc("okr_list_data_keys", {
+        p_role_id: session.roleId, p_password: session.password, p_prefix: prefix || null,
+      });
       if (error) return { keys: [], prefix, shared: true };
-      return { keys: (data || []).map((r) => r.key), prefix, shared: true };
+      return { keys: data || [], prefix, shared: true };
     },
   };
 }
 
-// Fallback used while signed out — purely local to this browser, read-only in the UI
-// (LockOverlay blocks editing before any write would ever reach this).
+// Fallback used while signed out — no session means no password to authenticate reads with,
+// so every call resolves to "nothing here" rather than touching Supabase at all. This is what
+// makes "open the site without logging in" show an empty state instead of any real data.
 function makeLocalDemoStorage() {
-  const PREFIX = "okr-app:";
   return {
-    async get(key) {
-      try {
-        const raw = localStorage.getItem(PREFIX + key);
-        return raw === null ? null : { key, value: raw, shared: false };
-      } catch { return null; }
-    },
-    async set(key, value) {
-      try { localStorage.setItem(PREFIX + key, value); return { key, value, shared: false }; } catch { return null; }
-    },
-    async delete(key) {
-      try { localStorage.removeItem(PREFIX + key); return { key, deleted: true, shared: false }; } catch { return null; }
-    },
-    async list(prefix) {
-      try {
-        const p = PREFIX + (prefix || "");
-        const keys = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.indexOf(p) === 0) keys.push(k.slice(PREFIX.length));
-        }
-        return { keys, prefix, shared: false };
-      } catch { return null; }
-    },
+    async get() { return null; },
+    async set() { throw new Error(tSync("Войдите, чтобы сохранять изменения.")); },
+    async delete() { throw new Error(tSync("Войдите, чтобы сохранять изменения.")); },
+    async list() { return { keys: [], shared: false }; },
   };
 }
 
@@ -5841,7 +5825,9 @@ export default function App() {
 
         <RoleAuthBar auth={roleAuth} onSignedInChange={() => setRefreshKey((k) => k + 1)} />
 
-        <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
+        {authCtxValue.isAdmin && (
+          <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
+        )}
 
         {authCtxValue.canView("directory") && (
           <LockOverlay locked={!authCtxValue.canEdit("directory")} reason={t("Справочник редактирует администратор")}>
