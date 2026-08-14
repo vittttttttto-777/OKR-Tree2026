@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, useContext, createContext } from "react";
 import * as XLSX from "xlsx";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   ChevronDown, ChevronRight, Plus, Trash2, Target, Flag,
   Layers, CalendarRange, ListChecks, CheckCircle2, Circle, Sparkles, Users, Network, Briefcase, Search,
-  Download, Upload, Activity, BarChart3
+  Download, Upload, Activity, BarChart3, PieChart, ShieldCheck
 } from "lucide-react";
 
 // ---- Language toggle (RU / EN) — translates app UI chrome; user-entered content stays as typed ----
@@ -20,6 +21,14 @@ const EN_DICT = {
   "Общее дерево OKR": "Combined OKR Tree",
   "Проекты": "Projects",
   "Дашборд трекинга": "Tracking Dashboard",
+  "Дашборд проектов": "Projects Dashboard",
+  "Пока нет проектов": "No projects yet",
+  "Всего проектов": "Total projects",
+  "Активны в этом месяце": "Active this month",
+  "Загрузка по дивизионам": "Load by division",
+  "Распределение статусов": "Status distribution",
+  "Активных проектов / месяц": "Active projects / month",
+  "Топ функций по кол-ву проектов": "Top functions by project count",
   "Гант": "Gantt",
   "Главные цели": "Main goals",
   "Волны": "Waves",
@@ -27,9 +36,44 @@ const EN_DICT = {
   "Месяцы": "Months",
   "Задачи": "Tasks",
   "план (без трекинга)": "planned (not tracked)",
+  "свернуть": "less",
+  "ещё": "more",
+  "Outcome — итоговый результат": "Outcome — the end result",
+  "Инициатива — программа работ": "Initiative — the work program",
+  "Output — результат программы": "Output — the program's result",
+  "Волна — полугодовой этап": "Wave — half-year stage",
+  "Квартал — операционный план": "Quarter — the operating plan",
   "Пока нет заполненных целей ни в одном треке.": "No goals filled in yet in any track.",
 
   "Google Таблица": "Google Sheet",
+  "не подключено": "not connected",
+  "Управление привилегиями": "Manage privileges",
+  "Клик по ячейке переключает право по кругу: — → Видит → Меняет → —. Изменения сохраняются сразу.": "Click a cell to cycle the right: — → View → Edit → —. Changes save immediately.",
+  "Модуль": "Module",
+  "Видит": "View",
+  "Меняет": "Edit",
+  "Пароли ролей": "Role passwords",
+  "новый пароль": "new password",
+  "Сохранить": "Save",
+  "Новая роль": "New role",
+  "Название роли": "Role name",
+  "Треки (все)": "All tracks",
+  "Трек Health OS": "Health OS track",
+  "Трек GrowthModel": "GrowthModel track",
+  "Трек PrimeGrowth": "PrimeGrowth track",
+  "Трек CoralEVO": "CoralEVO track",
+  "Трек ITModel": "ITModel track",
+  "Общее дерево OKR (связи)": "Combined OKR tree (links)",
+  "Вход": "Sign in",
+  "Выберите роль": "Choose a role",
+  "Пароль": "Password",
+  "Войти": "Sign in",
+  "Входим…": "Signing in…",
+  "Неверная роль или пароль.": "Wrong role or password.",
+  "Без входа приложение доступно только на просмотр. Роль и пароль вам выдаёт администратор.": "Without signing in, the app is view-only. Your admin gives you a role and password.",
+  "Войдите, чтобы редактировать": "Sign in to edit",
+  "Доступен только просмотр": "View only",
+  "Этот раздел вам недоступен — войдите под ролью с нужными правами.": "This section isn't available to you — sign in with a role that has access.",
   "Войти через Google": "Sign in with Google",
   "выйти": "sign out",
   "Администратор": "Admin",
@@ -153,6 +197,8 @@ const EN_DICT = {
   "волны ещё не разложены": "waves not broken down yet",
 
   "Проект/Инициатива": "Project/Initiative",
+  "Проектов": "Projects",
+  "трека": "tracks",
   "Проекты / инициативы трека": "Track projects / initiatives",
   "без названия": "untitled",
   "старт": "starts",
@@ -164,6 +210,11 @@ const EN_DICT = {
   "Ничего не найдено": "Nothing found",
   "Описание проекта": "Project description",
   "Тип проекта": "Project type",
+  "Статусы проектов": "Project statuses",
+  "Новый статус (например: На паузе)": "New status (e.g. On hold)",
+  "Статус": "Status",
+  "Дата начала": "Start date",
+  "Ожидаемая дата конца": "Expected end date",
   "RUN — текущая операционная деятельность": "RUN — ongoing operational activity",
   "Change — разовая инициатива изменений": "Change — one-off change initiative",
   "Кратко опишите проект…": "Briefly describe the project…",
@@ -272,16 +323,6 @@ const TRACK_COLORS = {
 
 const MAX_PROJECT_TRACKS = 3;
 
-// ---- Google Sheets backend (shared, multi-user storage) ----
-const GOOGLE_CLIENT_ID = "337212671711-2vmhg1vjmgslatap1lc2hps1818952v0.apps.googleusercontent.com";
-const GOOGLE_SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email";
-const SHEET_ID_STORAGE_KEY = "okr-google-sheet-id";
-const APPDATA_TAB = "AppData";
-const USERS_TAB = "Пользователи";
-const APPDATA_KEYS = [
-  "okr-track:health-os", "okr-track:growth-model", "okr-track:prime-growth",
-  "okr-track:coral-evo", "okr-track:it-model", "okr-projects", "okr-directory", "okr-links",
-];
 const STATUS_COLORS = { G: "#16a34a", Y: "#ca8a04", R: "#dc2626", N: "#94a3b8" };
 
 const MAX_TASKS = 25;
@@ -2115,7 +2156,9 @@ const STATUS_TEXT_TO_CODE = { "В плане": "G", "Откл. до 10%": "Y", "
 function buildProjectRows(projects) {
   return projects.map((p) => ({
     "Проект": p.name, "Тип (RUN/Change)": (p.projectType || "run") === "change" ? "Change" : "RUN",
-    "Дивизион": p.division, "Функция": p.function, "Статус": p.status,
+    "Дивизион": p.division, "Функция": p.function,
+    "Статус": (DEFAULT_PROJECT_STATUSES.find((s) => s.id === p.statusId) || {}).name || p.status || "",
+    "Дата начала": p.startDate || "", "Ожидаемая дата конца": p.endDate || "",
     "Месяц запуска": p.launchMonth || "", "Описание": p.description,
     "Треки (через ;)": p.trackIds.map((id) => (TRACKS.find((t) => t.id === id) || {}).name || id).join("; "),
     "Активность мес.1-12 (через запятую)": p.activity.join(","),
@@ -2298,7 +2341,10 @@ function rebuildProjectsFromSheets(projectRows, krRows, existingProjects) {
       return {
         id: existing ? existing.id : newId(),
         name, division: r["Дивизион"] || "", function: r["Функция"] || "",
-        status: r["Статус"] || "", statusCode: STATUS_TEXT_TO_CODE[r["Статус"]] || (existing ? existing.statusCode : "G"),
+        statusId: (DEFAULT_PROJECT_STATUSES.find((s) => normKey(s.name) === normKey(r["Статус"])) || {}).id
+          || (existing ? existing.statusId : "not-started"),
+        startDate: r["Дата начала"] || (existing ? existing.startDate : null),
+        endDate: r["Ожидаемая дата конца"] || (existing ? existing.endDate : null),
         projectType: normKey(r["Тип (RUN/Change)"]) === "change" ? "change" : "run",
         launchMonth: r["Месяц запуска"] ? String(r["Месяц запуска"]) : null,
         description: r["Описание"] || "", trackIds, activity: activity.slice(0, 12),
@@ -2425,6 +2471,25 @@ const LINK_TYPES = [
   { key: "sync", label: "Синхронизация", color: "#0369a1", icon: "⇄" },
 ];
 
+function Truncated({ text, limit = 80 }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  const isLong = text.length > limit;
+  if (!isLong) return <span className="whitespace-pre-wrap">{text}</span>;
+  return (
+    <span className="whitespace-pre-wrap">
+      {open ? text : truncate(text, limit)}{" "}
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        className="text-sky-600 hover:text-sky-800 t11 font-medium shrink-0"
+      >
+        {open ? `· ${t("свернуть")}` : `· ${t("ещё")}`}
+      </button>
+    </span>
+  );
+}
+
 function truncate(s, n = 64) {
   if (!s) return s;
   return s.length > n ? s.slice(0, n) + "…" : s;
@@ -2437,7 +2502,7 @@ function Linkable({ link, children }) {
   const t = useT();
   const ctx = useLinkCtx();
   const authCtx = useAuthCtx();
-  const canEditLinks = authCtx.isAdmin;
+  const canEditLinks = canEditModule(authCtx.permissions, "combined_tree_links");
   if (!ctx || !link) return children;
   const { pending, pick, links, removeLink, registerRef } = ctx;
   const isPending = pending && pending.itemId === link.itemId;
@@ -2741,7 +2806,7 @@ const TONES = {
   mission: { bg: "bg-amber-50", border: "border-amber-200", label: "text-amber-800", icon: "text-amber-500", iconWrap: "text-amber-600" },
   outcome: { bg: "bg-yellow-50", border: "border-yellow-200", label: "text-yellow-800", icon: "text-yellow-500", iconWrap: "text-yellow-600" },
   initiative: { bg: "bg-blue-50", border: "border-blue-200", label: "text-blue-800", icon: "text-blue-500", iconWrap: "text-blue-600" },
-  output: { bg: "bg-neutral-50", border: "border-neutral-200", label: "text-neutral-700", icon: "text-neutral-500", iconWrap: "text-neutral-600" },
+  output: { bg: "bg-teal-50", border: "border-teal-200", label: "text-teal-800", icon: "text-teal-500", iconWrap: "text-teal-600" },
   wave: { bg: "bg-emerald-50", border: "border-emerald-200", label: "text-emerald-800", icon: "text-emerald-500", iconWrap: "text-emerald-600" },
   waveTarget: { bg: "bg-neutral-50", border: "border-neutral-200 border-dashed", label: "text-neutral-500", icon: "text-neutral-400", iconWrap: "text-neutral-400" },
   quarter: { bg: "bg-rose-50", border: "border-rose-200", label: "text-rose-800", icon: "text-rose-500", iconWrap: "text-rose-600" },
@@ -3134,42 +3199,40 @@ function StaticRow({ label, labelColor, text, ownerId, link }) {
       <div className={`text-xs mb-0.5 ${labelColor}`}>
         {label} <Owner id={ownerId} />
       </div>
-      <div className="text-sm text-neutral-800 whitespace-pre-wrap">{displayText}</div>
+      <div className="text-sm text-neutral-800"><Truncated text={displayText} /></div>
     </div>
   );
   return link ? <Linkable link={link}>{body}</Linkable> : body;
 }
 
-function CombinedMonth({ month, trackId, trackName }) {
+function CombinedMonthCompact({ month, trackId, trackName }) {
   const monthText = useDataT(month.text);
   if (!monthHasContent(month)) return null;
   const tasks = month.tasks.filter((t) => !!t.text);
   return (
-    <Collapsible title={month.label} icon={<ListChecks size={13} />} tone={TONES.month} defaultOpen={true}>
-      <div className="space-y-1">
-        {month.text && (
-          <Linkable link={{ trackId, trackName, itemId: month.id, itemLabel: `KR месяца (${month.label}) — ${truncate(month.text)}` }}>
-            <div className="text-sm text-neutral-800">{monthText}</div>
-          </Linkable>
-        )}
-        {tasks.length > 0 && (
-          <div className="pt-1 space-y-1">
-            {tasks.map((t, i) => (
-              <Linkable
-                key={t.id}
-                link={{ trackId, trackName, itemId: t.id, itemLabel: `Задача — ${truncate(t.text)}` }}
-              >
-                <div className="flex items-center gap-2 pl-4 pr-4">
-                  <Circle size={6} className="text-neutral-300 shrink-0" />
-                  <span className="text-sm text-neutral-700 flex-1"><TranslatedText text={t.text} /></span>
-                  <Owner id={t.ownerId} />
-                </div>
-              </Linkable>
-            ))}
+    <div>
+      {month.text && (
+        <Linkable link={{ trackId, trackName, itemId: month.id, itemLabel: `KR месяца (${month.label}) — ${truncate(month.text)}` }}>
+          <div className="t11 font-medium text-neutral-700 flex items-center gap-1">
+            <ListChecks size={10} className="text-neutral-400 shrink-0" />
+            <span className="truncate">{month.label} · <Truncated text={monthText} limit={40} /></span>
           </div>
-        )}
-      </div>
-    </Collapsible>
+        </Linkable>
+      )}
+      {tasks.length > 0 && (
+        <div className="pl-3.5 space-y-0.5 mt-0.5">
+          {tasks.map((t) => (
+            <Linkable key={t.id} link={{ trackId, trackName, itemId: t.id, itemLabel: `Задача — ${truncate(t.text)}` }}>
+              <div className="flex items-center gap-1.5">
+                <Circle size={5} className="text-neutral-300 shrink-0" />
+                <span className="t11 text-neutral-600 truncate flex-1"><TranslatedText text={t.text} /></span>
+                <Owner id={t.ownerId} />
+              </div>
+            </Linkable>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3178,24 +3241,21 @@ function CombinedQuarter({ quarter, trackId, trackName }) {
   if (!quarterHasContent(quarter)) return null;
   const months = quarter.monthlyKRs.filter(monthHasContent);
   return (
-    <Collapsible title={`${t("Квартал")} ${quarter.label}`} icon={<CalendarRange size={13} />} tone={TONES.quarter}>
-      <div className="space-y-2">
-        <StaticRow
-          label={t("KR-веха квартала")} labelColor="text-rose-600" text={quarter.milestone}
-          link={{ trackId, trackName, itemId: `${quarter.id}-milestone`, itemLabel: `KR-веха (${quarter.label}) — ${truncate(quarter.milestone)}` }}
-        />
-        <StaticRow label={t("Инициатива на 3 мес.")} labelColor="text-rose-600" text={quarter.initiative3mo} />
-        <StaticRow
-          label={t("Objective")} labelColor="text-rose-600" text={quarter.objective} ownerId={quarter.objectiveOwner}
-          link={{ trackId, trackName, itemId: quarter.id, itemLabel: `Objective (${quarter.label}) — ${truncate(quarter.objective)}` }}
-        />
-        {months.length > 0 && (
-          <div className="pt-1 space-y-1.5">
-            {months.map((m) => <CombinedMonth key={m.id} month={m} trackId={trackId} trackName={trackName} />)}
-          </div>
-        )}
+    <div className={`rounded-lg border ${TONES.quarter.border} ${TONES.quarter.bg} p-2 space-y-1.5 min-w-0`}>
+      <div className={`t11 font-semibold uppercase tracking-wide flex items-center gap-1 ${TONES.quarter.label}`}>
+        <CalendarRange size={11} className="shrink-0" /> {t("Квартал")} {quarter.label}
       </div>
-    </Collapsible>
+      {quarter.milestone && (
+        <Linkable link={{ trackId, trackName, itemId: `${quarter.id}-milestone`, itemLabel: `KR-веха (${quarter.label}) — ${truncate(quarter.milestone)}` }}>
+          <div className="text-xs text-neutral-800"><Truncated text={quarter.milestone} limit={60} /></div>
+        </Linkable>
+      )}
+      {months.length > 0 && (
+        <div className="space-y-1 pt-1 border-t border-rose-100">
+          {months.map((m) => <CombinedMonthCompact key={m.id} month={m} trackId={trackId} trackName={trackName} />)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3211,7 +3271,7 @@ function CombinedWave({ wave, waveIndex, trackId, trackName }) {
           link={{ trackId, trackName, itemId: wave.id, itemLabel: `Objective 6 мес. (Волна ${waveIndex + 1}) — ${truncate(wave.objective6mo)}` }}
         />
         {quarters.length > 0 && (
-          <div className="flex flex-col gap-1.5">
+          <div className="grid grid-cols-2 gap-1.5">
             {quarters.map((q) => <CombinedQuarter key={q.id} quarter={q} trackId={trackId} trackName={trackName} />)}
           </div>
         )}
@@ -3223,23 +3283,44 @@ function CombinedWave({ wave, waveIndex, trackId, trackName }) {
 function CombinedOutput({ output, trackId, trackName }) {
   const t = useT();
   const outputText = useDataT(output.text);
-  if (!outputHasContent(output)) return null;
   const waves = output.waves.filter(waveHasContent);
   return (
     <Linkable link={{ trackId, trackName, itemId: output.id, itemLabel: `${output.label} — ${truncate(output.text)}` }}>
-      <Collapsible title={output.label} icon={<Target size={13} />} tone={TONES.output}>
-        <div className="space-y-2">
-          {output.text && <div className="text-sm text-neutral-800">{outputText}</div>}
-          {waves.length > 0 ? (
-            <div className="space-y-1.5 pt-1">
-              {output.waves.map((w, i) => <CombinedWave key={w.id} wave={w} waveIndex={i} trackId={trackId} trackName={trackName} />)}
-            </div>
-          ) : (
-            <div className="text-xs text-neutral-400 italic">{t("волны ещё не разложены")}</div>
-          )}
-        </div>
-      </Collapsible>
+      <div className={`rounded-lg border ${TONES.output.border} ${TONES.output.bg} p-2.5 space-y-2`}>
+        {output.text && <div className="text-sm text-neutral-800"><Truncated text={outputText} /></div>}
+        {waves.length > 0 ? (
+          <div className="space-y-1.5">
+            {output.waves.map((w, i) => <CombinedWave key={w.id} wave={w} waveIndex={i} trackId={trackId} trackName={trackName} />)}
+          </div>
+        ) : (
+          <div className="text-xs text-neutral-400 italic">{t("волны ещё не разложены")}</div>
+        )}
+      </div>
     </Linkable>
+  );
+}
+
+function CombinedOutputBranch({ outputs, trackId, trackName }) {
+  const [selected, setSelected] = useState(outputs[0]?.id);
+  const active = outputs.find((o) => o.id === selected) || outputs[0];
+  if (outputs.length === 1) return <CombinedOutput output={outputs[0]} trackId={trackId} trackName={trackName} />;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {outputs.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => setSelected(o.id)}
+            className={`t11 font-medium px-2 py-1 rounded-full border flex items-center gap-1 ${
+              o.id === active.id ? `${TONES.output.border} ${TONES.output.bg} ${TONES.output.label}` : "border-neutral-200 text-neutral-400 hover:border-neutral-300"
+            }`}
+          >
+            <Target size={10} className="shrink-0" /> {o.label}
+          </button>
+        ))}
+      </div>
+      {active && <CombinedOutput output={active} trackId={trackId} trackName={trackName} />}
+    </div>
   );
 }
 
@@ -3250,21 +3331,28 @@ function CombinedOutcome({ outcome, trackId, trackName }) {
   const outputs = outcome.krOutputs.filter(outputHasContent);
   return (
     <Linkable link={{ trackId, trackName, itemId: outcome.id, itemLabel: `KR Outcome — ${truncate(outcome.text)}` }}>
-      <Collapsible title={outcome.label} icon={<Flag size={14} />} tone={TONES.outcome}>
+      <Collapsible title={outcome.label} subtitle={truncate(outcome.text, 44)} icon={<Flag size={14} />} tone={TONES.outcome} defaultOpen={false}>
         <div className="space-y-2">
           <StaticRow label="KR Outcome" labelColor="text-yellow-700" text={outcome.text} />
-          {outcome.metric && <StaticRow label={t("Метрика")} labelColor="text-yellow-700" text={outcome.metric} />}
+          {outcome.metric && (
+            <span className="inline-flex items-center gap-1 t11 font-medium text-yellow-800 bg-yellow-100 px-2 py-0.5 rounded-full">
+              <BarChart3 size={10} /> {outcome.metric}
+            </span>
+          )}
           {(outcome.initiativeText || outcome.objectiveText || outputs.length > 0) && (
-            <Collapsible title={t("Стратегическая инициатива на 18 мес.")} icon={<Layers size={13} />} tone={TONES.initiative}>
+            <Collapsible
+              title={t("Стратегическая инициатива на 18 мес.")} subtitle={truncate(outcome.initiativeText, 36)}
+              icon={<Layers size={13} />} tone={TONES.initiative} defaultOpen={false}
+            >
               <div className="space-y-2">
-                {outcome.initiativeText && <div className="text-sm text-neutral-800">{initiativeText}</div>}
+                {outcome.initiativeText && <div className="text-sm text-neutral-800"><Truncated text={initiativeText} /></div>}
                 <StaticRow
                   label={t("Objective")} labelColor="text-blue-700" text={outcome.objectiveText} ownerId={outcome.objectiveOwner}
                   link={{ trackId, trackName, itemId: `${outcome.id}-init-objective`, itemLabel: `Objective инициативы — ${truncate(outcome.objectiveText)}` }}
                 />
                 {outputs.length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    {outputs.map((ko) => <CombinedOutput key={ko.id} output={ko} trackId={trackId} trackName={trackName} />)}
+                  <div className="pt-1">
+                    <CombinedOutputBranch outputs={outputs} trackId={trackId} trackName={trackName} />
                   </div>
                 )}
               </div>
@@ -3273,6 +3361,62 @@ function CombinedOutcome({ outcome, trackId, trackName }) {
         </div>
       </Collapsible>
     </Linkable>
+  );
+}
+
+function MainGoalBlock({ uo, ui, trackId, trackName, color }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const outcomes = uo.krOutcomes.filter(outcomeHasContent);
+  return (
+    <div className="rounded-lg bg-white border border-neutral-100 px-3 py-2 space-y-1.5" style={{ borderLeftWidth: 3, borderLeftColor: color }}>
+      <StaticRow
+        label={`${t("Главная цель")} ${ui + 1}`} labelColor="text-amber-700" text={uo.text} ownerId={uo.owner}
+        link={{ trackId, trackName, itemId: `ultimate-${uo.id}`, itemLabel: `Главная цель ${ui + 1} — ${truncate(uo.text)}` }}
+      />
+      {outcomes.length > 0 && (
+        <>
+          <button onClick={() => setOpen((o) => !o)} className="t11 text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium">
+            {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            {outcomes.length} KR Outcome
+          </button>
+          {open && (
+            <div className="space-y-1.5 pt-1">
+              {outcomes.map((o) => <CombinedOutcome key={o.id} outcome={o} trackId={trackId} trackName={trackName} />)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrackProjectsCollapse({ projects, trackId, trackName }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  if (projects.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 hover:bg-indigo-100"
+      >
+        {open ? <ChevronDown size={13} className="shrink-0" /> : <ChevronRight size={13} className="shrink-0" />}
+        <Briefcase size={12} className="shrink-0" />
+        <span>{t("Проектов")}: {projects.length}</span>
+      </button>
+      {open && (
+        <div className="space-y-1.5">
+          {projects.map((p) => (
+            <ProjectMiniCard
+              key={p.id}
+              project={p}
+              link={{ trackId, trackName, itemId: `project-${p.id}`, itemLabel: `Проект/Инициатива — ${truncate(p.name)}` }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -3299,38 +3443,17 @@ function CombinedTrackSection({ trackId, trackName, data, projects }) {
       <div className="p-3 space-y-2">
         {data.mission && (
           <div className="rounded-lg bg-white border border-neutral-100 px-3 py-2" style={{ borderLeftWidth: 3, borderLeftColor: color }}>
-            <div className="text-xs text-neutral-500">{missionText}</div>
+            <div className="text-xs text-neutral-500"><Truncated text={missionText} limit={100} /></div>
           </div>
         )}
         {trackProjects.length > 0 && (
-          <div className="space-y-1.5">
-            {trackProjects.map((p) => (
-              <ProjectMiniCard
-                key={p.id}
-                project={p}
-                link={{ trackId, trackName, itemId: `project-${p.id}`, itemLabel: `Проект/Инициатива — ${truncate(p.name)}` }}
-              />
-            ))}
-          </div>
+          <TrackProjectsCollapse projects={trackProjects} trackId={trackId} trackName={trackName} />
         )}
         {ultimateObjectives.length > 0 ? (
           <div className="space-y-2">
-            {ultimateObjectives.map((uo, ui) => {
-              const outcomes = uo.krOutcomes.filter(outcomeHasContent);
-              return (
-                <div key={uo.id} className="rounded-lg bg-white border border-neutral-100 px-3 py-2 space-y-1.5" style={{ borderLeftWidth: 3, borderLeftColor: color }}>
-                  <StaticRow
-                    label={`${t("Главная цель")} ${ui + 1}`} labelColor="text-amber-700" text={uo.text} ownerId={uo.owner}
-                    link={{ trackId, trackName, itemId: `ultimate-${uo.id}`, itemLabel: `Главная цель ${ui + 1} — ${truncate(uo.text)}` }}
-                  />
-                  {outcomes.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
-                      {outcomes.map((o) => <CombinedOutcome key={o.id} outcome={o} trackId={trackId} trackName={trackName} />)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {ultimateObjectives.map((uo, ui) => (
+              <MainGoalBlock key={uo.id} uo={uo} ui={ui} trackId={trackId} trackName={trackName} color={color} />
+            ))}
           </div>
         ) : (
           <div className="text-xs text-neutral-400 italic px-1">{t("пока нет заполненных целей")}</div>
@@ -3636,6 +3759,14 @@ function CombinedTree() {
           })}
         </div>
 
+        <div className="flex items-center gap-3 flex-wrap justify-center t10 text-neutral-500 border-t border-neutral-100 pt-2">
+          <span className="inline-flex items-center gap-1"><Flag size={11} className="text-yellow-600" /> {t("Outcome — итоговый результат")}</span>
+          <span className="inline-flex items-center gap-1"><Layers size={11} className="text-blue-600" /> {t("Инициатива — программа работ")}</span>
+          <span className="inline-flex items-center gap-1"><Target size={11} className="text-teal-600" /> {t("Output — результат программы")}</span>
+          <span className="inline-flex items-center gap-1"><Layers size={11} className="text-emerald-600" /> {t("Волна — полугодовой этап")}</span>
+          <span className="inline-flex items-center gap-1"><CalendarRange size={11} className="text-rose-600" /> {t("Квартал — операционный план")}</span>
+        </div>
+
         <div className="flex items-center gap-3 flex-wrap justify-center t10 text-neutral-400">
           {LINK_TYPES.map((lt) => (
             <span key={lt.key} className="inline-flex items-center gap-1">
@@ -3691,6 +3822,48 @@ function CombinedTree() {
   );
 }
 
+const DEFAULT_PROJECT_STATUSES = [
+  { id: "not-started", name: "Не начат", color: "#94a3b8" },
+  { id: "in-progress", name: "В работе", color: "#16a34a" },
+  { id: "off-track", name: "Отклонение от срока", color: "#ca8a04" },
+  { id: "frozen", name: "Заморожен", color: "#3b82f6" },
+];
+const LEGACY_STATUS_CODE_MAP = { G: "in-progress", Y: "off-track", R: "frozen", N: "not-started" };
+
+function migrateProject(p) {
+  if (p.statusId) return p;
+  return {
+    ...p,
+    statusId: LEGACY_STATUS_CODE_MAP[p.statusCode] || "not-started",
+    startDate: p.startDate || null,
+    endDate: p.endDate || null,
+  };
+}
+
+function useProjectStatuses() {
+  const [statuses, setStatuses] = useState(DEFAULT_PROJECT_STATUSES);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-project-statuses", false);
+        setStatuses(res ? JSON.parse(res.value) : DEFAULT_PROJECT_STATUSES);
+      } catch {
+        setStatuses(DEFAULT_PROJECT_STATUSES);
+      }
+      setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => {
+      window.storage.set("okr-project-statuses", JSON.stringify(statuses), false).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [statuses, loaded]);
+  return [statuses, setStatuses, loaded];
+}
+
 function useProjects() {
   const [projects, setProjects] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -3698,9 +3871,10 @@ function useProjects() {
     (async () => {
       try {
         const res = await window.storage.get("okr-projects", false);
-        setProjects(res ? JSON.parse(res.value) : PROJECTS_SEED);
+        const raw = res ? JSON.parse(res.value) : PROJECTS_SEED;
+        setProjects(raw.map(migrateProject));
       } catch {
-        setProjects(PROJECTS_SEED);
+        setProjects(PROJECTS_SEED.map(migrateProject));
       }
       setLoaded(true);
     })();
@@ -3715,15 +3889,29 @@ function useProjects() {
   return [projects, setProjects, loaded];
 }
 
+function projectShareTone(count) {
+  if (count >= 4) return { border: "border-red-300", bg: "bg-red-50", label: "text-red-700", dot: "bg-red-400" };
+  if (count === 3) return { border: "border-amber-300", bg: "bg-amber-50", label: "text-amber-700", dot: "bg-amber-400" };
+  if (count === 2) return { border: "border-emerald-300", bg: "bg-emerald-50", label: "text-emerald-700", dot: "bg-emerald-400" };
+  return { border: "border-indigo-200", bg: "bg-indigo-50", label: "text-indigo-700", dot: "bg-indigo-300" };
+}
+
 function ProjectMiniCard({ project, link }) {
   const t = useT();
   const description = useDataT(project.description);
   const filledKrs = project.krs.filter((k) => !!k.text);
+  const shareCount = (project.trackIds || []).length;
+  const tone = projectShareTone(shareCount);
   const body = (
-    <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 space-y-1 min-w-0">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-indigo-700 min-w-0">
+    <div className={`rounded-lg border ${tone.border} ${tone.bg} px-3 py-2 space-y-1 min-w-0`}>
+      <div className={`flex items-center gap-1.5 text-xs font-medium ${tone.label} min-w-0`}>
         <Briefcase size={12} className="shrink-0" />
-        <span className="break-words min-w-0">{t("Проект/Инициатива")} — {project.name || t("без названия")}</span>
+        <span className="break-words min-w-0 flex-1">{t("Проект/Инициатива")} — {project.name || t("без названия")}</span>
+        {shareCount > 1 && (
+          <span className={`t10 px-1.5 py-0.5 rounded-full shrink-0 font-semibold text-white ${tone.dot}`}>
+            {shareCount} {t("трека")}
+          </span>
+        )}
       </div>
       {(project.division || project.function) && (
         <div className="t11 text-indigo-400 break-words">
@@ -3785,10 +3973,11 @@ function MonthSpark({ activity }) {
   );
 }
 
-function ProjectCard({ project, onChange, onDelete }) {
+function ProjectCard({ project, onChange, onDelete, statuses }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const color = STATUS_COLORS[project.statusCode] || "#94a3b8";
+  const statusObj = statuses.find((s) => s.id === project.statusId) || statuses[0] || { name: "", color: "#94a3b8" };
+  const color = statusObj.color;
 
   const update = (field, value) => onChange({ ...project, [field]: value });
 
@@ -3809,10 +3998,13 @@ function ProjectCard({ project, onChange, onDelete }) {
     <div className="rounded-xl border border-neutral-200 overflow-hidden bg-white">
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-start gap-2.5 px-3 py-2.5 text-left hover:bg-neutral-50">
         {open ? <ChevronDown size={15} className="text-neutral-400 shrink-0 mt-0.5" /> : <ChevronRight size={15} className="text-neutral-400 shrink-0 mt-0.5" />}
-        <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: color }} title={project.status} />
+        <span className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ background: color }} title={statusObj.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-medium text-neutral-800 break-words">{project.name}</span>
+            <span className="t10 px-1.5 py-0.5 rounded-full shrink-0 font-medium" style={{ background: color + "1A", color }}>
+              {statusObj.name}
+            </span>
             <span
               className="t10 px-1.5 py-0.5 rounded-full shrink-0 font-medium"
               style={
@@ -3828,10 +4020,10 @@ function ProjectCard({ project, onChange, onDelete }) {
             <span>{project.division}</span>
             <span>·</span>
             <span>{project.function}</span>
-            {project.launchMonth && (
+            {(project.startDate || project.endDate) && (
               <>
                 <span>·</span>
-                <span>{t("старт")} {project.launchMonth}</span>
+                <span>{formatDateRu(project.startDate)}{project.endDate ? ` — ${formatDateRu(project.endDate)}` : ""}</span>
               </>
             )}
           </div>
@@ -3876,6 +4068,36 @@ function ProjectCard({ project, onChange, onDelete }) {
               {(project.projectType || "run") === "change" ? t("Change — разовая инициатива изменений") : t("RUN — текущая операционная деятельность")}
             </div>
           </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <div className="text-xs text-neutral-500 mb-1">{t("Статус")}</div>
+              <select
+                value={project.statusId || statuses[0]?.id}
+                onChange={(e) => update("statusId", e.target.value)}
+                className="w-full text-sm bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 outline-none"
+              >
+                {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500 mb-1">{t("Дата начала")}</div>
+              <input
+                type="date" value={project.startDate || ""}
+                onChange={(e) => update("startDate", e.target.value || null)}
+                className="w-full text-sm bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 outline-none"
+              />
+            </div>
+            <div>
+              <div className="text-xs text-neutral-500 mb-1">{t("Ожидаемая дата конца")}</div>
+              <input
+                type="date" value={project.endDate || ""}
+                onChange={(e) => update("endDate", e.target.value || null)}
+                className="w-full text-sm bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5 outline-none"
+              />
+            </div>
+          </div>
+
           <div>
             <div className="text-xs text-neutral-500 mb-1">{t("Описание проекта")}</div>
             <textarea
@@ -3952,15 +4174,80 @@ function ProjectCard({ project, onChange, onDelete }) {
   );
 }
 
+const STATUS_COLOR_SWATCHES = ["#94a3b8", "#16a34a", "#ca8a04", "#dc2626", "#3b82f6", "#8b5cf6", "#ec4899", "#0d9488"];
+
+function StatusManager({ statuses, setStatuses }) {
+  const t = useT();
+  const [name, setName] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const add = () => {
+    if (!name.trim()) return;
+    const usedColors = statuses.map((s) => s.color);
+    const color = STATUS_COLOR_SWATCHES.find((c) => !usedColors.includes(c)) || STATUS_COLOR_SWATCHES[0];
+    setStatuses((prev) => [...prev, { id: newId(), name: name.trim(), color }]);
+    setName("");
+  };
+  const remove = (id) => setStatuses((prev) => prev.filter((s) => s.id !== id));
+  const recolor = (id, color) => setStatuses((prev) => prev.map((s) => (s.id === id ? { ...s, color } : s)));
+
+  return (
+    <div className="mb-4 border border-neutral-200 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 px-3 py-2 bg-neutral-50 hover:bg-neutral-100">
+        {open ? <ChevronDown size={15} className="text-neutral-500" /> : <ChevronRight size={15} className="text-neutral-500" />}
+        <Flag size={14} className="text-neutral-500" />
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-600">{t("Статусы проектов")}</span>
+        <span className="text-xs text-neutral-400 ml-auto">{statuses.length}</span>
+      </button>
+      {open && (
+        <div className="p-3 space-y-2">
+          <div className="flex gap-1.5">
+            <input
+              className="flex-1 text-sm border border-neutral-200 rounded-md px-2 py-1 outline-none"
+              placeholder={t("Новый статус (например: На паузе)")}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && add()}
+            />
+            <button onClick={add} className="px-2.5 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-800">
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {statuses.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-neutral-50">
+                <div className="flex items-center gap-1">
+                  {STATUS_COLOR_SWATCHES.map((c) => (
+                    <button
+                      key={c} onClick={() => recolor(s.id, c)}
+                      className="w-4 h-4 rounded-full shrink-0"
+                      style={{ background: c, outline: s.color === c ? "2px solid #171717" : "none", outlineOffset: 1 }}
+                    />
+                  ))}
+                </div>
+                <span className="text-sm flex-1 min-w-0 break-words" style={{ color: s.color }}>{s.name}</span>
+                <button onClick={() => remove(s.id)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectsModule() {
   const t = useT();
   const [projects, setProjects, loaded] = useProjects();
+  const [statuses, setStatuses, statusesLoaded] = useProjectStatuses();
   const [query, setQuery] = useState("");
   const [divisionFilter, setDivisionFilter] = useState("");
   const [trackFilter, setTrackFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
 
-  if (!loaded) {
+  if (!loaded || !statusesLoaded) {
     return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
   }
 
@@ -3973,8 +4260,9 @@ function ProjectsModule() {
   const addProject = () => {
     setProjects((prev) => [
       {
-        id: newId(), division: "", function: "", name: "", status: "В плане", statusCode: "G",
-        launchMonth: null, activity: Array(12).fill(0), description: "", krs: [], trackIds: [], projectType: "run",
+        id: newId(), division: "", function: "", name: "", statusId: statuses[0]?.id || "not-started",
+        startDate: null, endDate: null, launchMonth: null, activity: Array(12).fill(0),
+        description: "", krs: [], trackIds: [], projectType: "run",
       },
       ...prev,
     ]);
@@ -3994,6 +4282,8 @@ function ProjectsModule() {
 
   return (
     <div className="space-y-3">
+      <StatusManager statuses={statuses} setStatuses={setStatuses} />
+
       <div className="flex items-center justify-between px-1">
         <div className="text-xs text-neutral-400">
           {projects.length} {t("проектов")} · {t("связаны с треками")} — {linkedCount}
@@ -4071,7 +4361,7 @@ function ProjectsModule() {
           </div>
         ) : (
           filtered.map((p) => (
-            <ProjectCard key={p.id} project={p} onChange={updateProject} onDelete={() => deleteProject(p.id)} />
+            <ProjectCard key={p.id} project={p} onChange={updateProject} onDelete={() => deleteProject(p.id)} statuses={statuses} />
           ))
         )}
       </div>
@@ -4525,6 +4815,304 @@ function GanttChart() {
   );
 }
 
+function ProjectsDashboard() {
+  const t = useT();
+  const [projects, , loaded] = useProjects();
+  const [statuses, , statusesLoaded] = useProjectStatuses();
+
+  if (!loaded || !statusesLoaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+  if (projects.length === 0) {
+    return <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">{t("Пока нет проектов")}</div>;
+  }
+
+  const statusOf = (p) => statuses.find((s) => s.id === p.statusId) || statuses[0] || { id: "?", name: "—", color: "#94a3b8" };
+  const byStatus = statuses.map((s) => ({ ...s, count: projects.filter((p) => p.statusId === s.id).length }));
+  const divisions = Array.from(new Set(projects.map((p) => p.division).filter(Boolean))).sort();
+  const functions = Array.from(new Set(projects.map((p) => p.function).filter(Boolean)));
+  const topFunctions = functions
+    .map((f) => ({ name: f, count: projects.filter((p) => p.function === f).length }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+  const monthLabels = ["Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек"];
+  const monthCounts = monthLabels.map((_, i) => projects.filter((p) => (p.activity || [])[i]).length);
+  const maxMonth = Math.max(1, ...monthCounts);
+  const currentMonthIdx = new Date().getMonth();
+  const activeNow = monthCounts[currentMonthIdx];
+  const maxDivisionTotal = Math.max(1, ...divisions.map((d) => projects.filter((p) => p.division === d).length));
+
+  let donutOffset = 0;
+  const donutStops = byStatus.filter((s) => s.count > 0).map((s) => {
+    const pct = (s.count / projects.length) * 100;
+    const stop = `${s.color} ${donutOffset}% ${donutOffset + pct}%`;
+    donutOffset += pct;
+    return stop;
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(5, byStatus.length + 2)}, minmax(0,1fr))` }}>
+        <div className="rounded-xl border border-neutral-200 p-3">
+          <div className="text-2xl font-semibold text-neutral-800">{projects.length}</div>
+          <div className="t11 text-neutral-400 uppercase tracking-wide">{t("Всего проектов")}</div>
+        </div>
+        {byStatus.map((s) => (
+          <div key={s.id} className="rounded-xl border border-neutral-200 p-3" style={{ borderLeftWidth: 3, borderLeftColor: s.color }}>
+            <div className="text-2xl font-semibold" style={{ color: s.color }}>{s.count}</div>
+            <div className="t11 text-neutral-400 uppercase tracking-wide truncate">{s.name}</div>
+            <div className="t10 text-neutral-400">{projects.length ? Math.round((s.count / projects.length) * 100) : 0}%</div>
+          </div>
+        ))}
+        <div className="rounded-xl border border-neutral-200 p-3">
+          <div className="text-2xl font-semibold text-neutral-800">{activeNow}</div>
+          <div className="t11 text-neutral-400 uppercase tracking-wide">{t("Активны в этом месяце")}</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="rounded-xl border border-neutral-200 p-3">
+          <div className="t11 font-semibold uppercase tracking-wide text-neutral-500 mb-2">{t("Загрузка по дивизионам")}</div>
+          <div className="space-y-1.5">
+            {divisions.map((d) => {
+              const dProjects = projects.filter((p) => p.division === d);
+              return (
+                <div key={d} className="flex items-center gap-2">
+                  <span className="text-xs text-neutral-600 w-28 shrink-0 truncate">{d}</span>
+                  <div className="flex-1 h-3 rounded-full overflow-hidden bg-neutral-100 flex" style={{ maxWidth: `${(dProjects.length / maxDivisionTotal) * 100}%` }}>
+                    {statuses.map((s) => {
+                      const cnt = dProjects.filter((p) => p.statusId === s.id).length;
+                      if (!cnt) return null;
+                      return <div key={s.id} style={{ width: `${(cnt / dProjects.length) * 100}%`, background: s.color }} title={s.name} />;
+                    })}
+                  </div>
+                  <span className="t11 text-neutral-400 w-6 text-right shrink-0">{dProjects.length}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-neutral-100">
+            {statuses.map((s) => (
+              <span key={s.id} className="t10 text-neutral-400 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full" style={{ background: s.color }} /> {s.name}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-neutral-200 p-3 flex items-center gap-4">
+          <div>
+            <div className="t11 font-semibold uppercase tracking-wide text-neutral-500 mb-2">{t("Распределение статусов")}</div>
+            <div
+              className="relative rounded-full shrink-0"
+              style={{ width: 130, height: 130, background: donutStops.length ? `conic-gradient(${donutStops.join(",")})` : "#e5e5e5" }}
+            >
+              <div className="absolute rounded-full bg-white flex flex-col items-center justify-center" style={{ inset: 22 }}>
+                <span className="text-lg font-semibold text-neutral-800">{projects.length}</span>
+                <span className="t10 text-neutral-400 uppercase">{t("проектов")}</span>
+              </div>
+            </div>
+          </div>
+          <div className="space-y-1 flex-1 min-w-0">
+            {byStatus.map((s) => (
+              <div key={s.id} className="flex items-center gap-1.5 t11">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                <span className="text-neutral-600 truncate flex-1">{s.name}</span>
+                <span className="font-medium text-neutral-800 shrink-0">{s.count}</span>
+                <span className="text-neutral-400 shrink-0 w-10 text-right">{projects.length ? Math.round((s.count / projects.length) * 100) : 0}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="rounded-xl border border-neutral-200 p-3">
+          <div className="t11 font-semibold uppercase tracking-wide text-neutral-500 mb-2">{t("Активных проектов / месяц")}</div>
+          <div className="flex items-end gap-1.5" style={{ height: 90 }}>
+            {monthCounts.map((c, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center justify-end gap-1">
+                <span className="t10 text-neutral-400">{c || ""}</span>
+                <div
+                  className="w-full rounded-sm"
+                  style={{ height: `${(c / maxMonth) * 60 + (c ? 4 : 2)}px`, background: i === currentMonthIdx ? "#4f46e5" : "#d4d4d4" }}
+                />
+                <span className="t10 text-neutral-400">{monthLabels[i]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-neutral-200 p-3">
+          <div className="t11 font-semibold uppercase tracking-wide text-neutral-500 mb-2">{t("Топ функций по кол-ву проектов")}</div>
+          <div className="space-y-1.5">
+            {topFunctions.map((f) => (
+              <div key={f.name} className="flex items-center gap-2">
+                <span className="text-xs text-neutral-600 w-24 shrink-0 truncate">{f.name}</span>
+                <div className="flex-1 h-3 bg-neutral-100 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-indigo-400" style={{ width: `${(f.count / (topFunctions[0]?.count || 1)) * 100}%` }} />
+                </div>
+                <span className="t11 text-neutral-400 w-5 text-right shrink-0">{f.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const PERM_LEVELS = ["none", "view", "edit"];
+const PERM_LEVEL_STYLE = {
+  none: { bg: "#f5f5f5", color: "#a3a3a3", label: "—" },
+  view: { bg: "#dbeafe", color: "#1d4ed8", label: "Видит" },
+  edit: { bg: "#dcfce7", color: "#15803d", label: "Меняет" },
+};
+
+function PrivilegesManager({ auth }) {
+  const t = useT();
+  const [roles, setRoles] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [pwDrafts, setPwDrafts] = useState({});
+  const [newRoleName, setNewRoleName] = useState("");
+
+  const reload = useCallback(async () => {
+    const { data, error } = await supabase.rpc("okr_list_roles");
+    if (!error && data) setRoles(data);
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const cycleLevel = async (role, moduleKey) => {
+    const current = (role.permissions && role.permissions[moduleKey]) || "none";
+    const next = PERM_LEVELS[(PERM_LEVELS.indexOf(current) + 1) % PERM_LEVELS.length];
+    const newPermissions = { ...role.permissions, [moduleKey]: next };
+    setRoles((prev) => prev.map((r) => (r.id === role.id ? { ...r, permissions: newPermissions } : r)));
+    const { error } = await supabase.rpc("okr_upsert_role", {
+      p_id: role.id, p_name: role.name, p_permissions: newPermissions, p_sort_order: role.sort_order || 0,
+    });
+    if (error) setError(error.message);
+  };
+
+  const savePassword = async (roleId) => {
+    const pw = (pwDrafts[roleId] || "").trim();
+    if (!pw) return;
+    const { error } = await supabase.rpc("okr_set_role_password", { p_role_id: roleId, p_new_password: pw });
+    if (error) setError(error.message);
+    else setPwDrafts((prev) => ({ ...prev, [roleId]: "" }));
+  };
+
+  const addRole = async () => {
+    if (!newRoleName.trim()) return;
+    const id = "role-" + newId();
+    const emptyPerms = Object.fromEntries(MODULES.map((m) => [m.key, "none"]));
+    const { error } = await supabase.rpc("okr_upsert_role", {
+      p_id: id, p_name: newRoleName.trim(), p_permissions: emptyPerms, p_sort_order: roles.length + 1,
+    });
+    if (error) setError(error.message);
+    else { setNewRoleName(""); reload(); }
+  };
+
+  const removeRole = async (roleId) => {
+    const { error } = await supabase.rpc("okr_delete_role", { p_id: roleId });
+    if (error) setError(error.message);
+    else reload();
+  };
+
+  if (!loaded) {
+    return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm text-neutral-500">
+        {t("Клик по ячейке переключает право по кругу: — → Видит → Меняет → —. Изменения сохраняются сразу.")}
+      </div>
+      {error && <div className="text-xs text-red-600">{error}</div>}
+
+      <div className="overflow-x-auto border border-neutral-200 rounded-xl">
+        <table className="text-xs" style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+          <thead>
+            <tr>
+              <th className="text-left px-2 py-2 bg-neutral-50 sticky left-0" style={{ minWidth: 200 }}>{t("Модуль")}</th>
+              {roles.map((r) => (
+                <th key={r.id} className="px-2 py-2 bg-neutral-50 font-medium text-neutral-700" style={{ minWidth: 110 }}>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="text-center">{r.name}</span>
+                    <button onClick={() => removeRole(r.id)} className="text-neutral-300 hover:text-red-500 shrink-0">
+                      <Trash2 size={11} />
+                    </button>
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MODULES.map((m, mi) => (
+              <tr key={m.key} className={mi % 2 === 0 ? "bg-white" : "bg-neutral-50"}>
+                <td className="px-2 py-1.5 text-neutral-700 sticky left-0" style={{ background: "inherit" }}>{t(m.label)}</td>
+                {roles.map((r) => {
+                  const level = (r.permissions && r.permissions[m.key]) || "none";
+                  const style = PERM_LEVEL_STYLE[level];
+                  return (
+                    <td key={r.id} className="px-2 py-1.5 text-center">
+                      <button
+                        onClick={() => cycleLevel(r, m.key)}
+                        className="text-xs px-2 py-1 rounded-full font-medium w-full"
+                        style={{ background: style.bg, color: style.color }}
+                      >
+                        {t(style.label)}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="border border-neutral-200 rounded-xl p-3 space-y-2">
+        <div className="text-xs font-medium uppercase tracking-wide text-neutral-600">{t("Пароли ролей")}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {roles.map((r) => (
+            <div key={r.id} className="flex items-center gap-1.5">
+              <span className="text-xs text-neutral-600 flex-1 min-w-0 truncate">{r.name}</span>
+              <input
+                type="text" value={pwDrafts[r.id] || ""}
+                onChange={(e) => setPwDrafts((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                placeholder={t("новый пароль")}
+                className="text-xs border border-neutral-200 rounded-md px-2 py-1 bg-neutral-50"
+                style={{ width: 120 }}
+              />
+              <button onClick={() => savePassword(r.id)} className="text-xs border border-neutral-200 rounded-md px-2 py-1 hover:bg-neutral-50 shrink-0">
+                {t("Сохранить")}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border border-neutral-200 rounded-xl p-3">
+        <div className="text-xs font-medium uppercase tracking-wide text-neutral-600 mb-2">{t("Новая роль")}</div>
+        <div className="flex gap-1.5">
+          <input
+            value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addRole()}
+            placeholder={t("Название роли")}
+            className="flex-1 text-sm border border-neutral-200 rounded-md px-2 py-1.5 outline-none"
+          />
+          <button onClick={addRole} className="px-2.5 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-800">
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TrackingDashboard() {
   const t = useT();
   const [tracksData, loaded] = useAllTracksData();
@@ -4799,92 +5387,49 @@ function ExportImportBar({ directory, setDirectory, onImported }) {
 }
 
 // ---- Google Identity Services loader ----
-function loadGisScript() {
-  return new Promise((resolve, reject) => {
-    if (window.google && window.google.accounts && window.google.accounts.oauth2) {
-      resolve();
-      return;
-    }
-    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", reject);
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.defer = true;
-    s.onload = () => resolve();
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
+// ---- Supabase client ----
+const SUPABASE_URL = "https://awwhrlenhqoreagzfymn.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_t94mAXN3a3ql6fGuoIf8Lg_HMrcSGiy";
+const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const ROLE_SESSION_KEY = "okr-role-session";
+
+const MODULES = [
+  { key: "tracks_all", label: "Треки (все)" },
+  { key: "track_health-os", label: "Трек Health OS" },
+  { key: "track_growth-model", label: "Трек GrowthModel" },
+  { key: "track_prime-growth", label: "Трек PrimeGrowth" },
+  { key: "track_coral-evo", label: "Трек CoralEVO" },
+  { key: "track_it-model", label: "Трек ITModel" },
+  { key: "combined_tree", label: "Общее дерево OKR" },
+  { key: "combined_tree_links", label: "Общее дерево OKR (связи)" },
+  { key: "projects", label: "Проекты" },
+  { key: "projects_dashboard", label: "Дашборд проектов" },
+  { key: "tracking_dashboard", label: "Дашборд трекинга" },
+  { key: "gantt", label: "Гант" },
+  { key: "directory", label: "Справочник" },
+  { key: "privileges", label: "Управление привилегиями" },
+];
+
+function moduleKeyForDataKey(key) {
+  if (key.startsWith("okr-track:")) return "track_" + key.slice("okr-track:".length);
+  if (key === "okr-projects" || key === "okr-project-statuses") return "projects";
+  if (key === "okr-directory") return "directory";
+  if (key === "okr-links") return "combined_tree_links";
+  return "privileges";
 }
-
-function useGoogleAuth() {
-  const t = useT();
-  const [email, setEmail] = useState(null);
-  const [accessToken, setAccessToken] = useState(null);
-  const [gisReady, setGisReady] = useState(false);
-  const [error, setError] = useState("");
-  const tokenClientRef = useRef(null);
-
-  useEffect(() => {
-    loadGisScript()
-      .then(() => {
-        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_CLIENT_ID,
-          scope: GOOGLE_SCOPES,
-          callback: async (resp) => {
-            if (resp.error) {
-              setError(t("Не удалось войти: ") + resp.error);
-              return;
-            }
-            setAccessToken(resp.access_token);
-            try {
-              const r = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-                headers: { Authorization: `Bearer ${resp.access_token}` },
-              });
-              const info = await r.json();
-              setEmail((info.email || "").toLowerCase());
-            } catch {
-              setError(t("Вошли, но не удалось получить email."));
-            }
-          },
-        });
-        setGisReady(true);
-      })
-      .catch(() => setError(t("Не удалось загрузить Google Sign-In (проверьте интернет-соединение).")));
-  }, []);
-
-  const signIn = useCallback(() => {
-    setError("");
-    if (tokenClientRef.current) tokenClientRef.current.requestAccessToken({ prompt: "" });
-  }, []);
-
-  const signOut = useCallback(() => {
-    if (accessToken && window.google) {
-      window.google.accounts.oauth2.revoke(accessToken, () => {});
-    }
-    setAccessToken(null);
-    setEmail(null);
-  }, [accessToken]);
-
-  return { email, accessToken, gisReady, error, signIn, signOut, signedIn: !!accessToken && !!email };
-}
-
-// ---- Google Sheets REST helpers ----
-async function sheetsFetchTab(accessToken, spreadsheetId, tabName, rangeSuffix) {
-  const range = encodeURIComponent(`${tabName}!${rangeSuffix}`);
-  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err.error && err.error.message) || `Ошибка чтения листа «${tabName}»`);
+function effectivePermission(permissions, moduleKey) {
+  const level = (permissions && permissions[moduleKey]) || "none";
+  if (moduleKey.startsWith("track_")) {
+    const all = (permissions && permissions["tracks_all"]) || "none";
+    if (all === "edit") return "edit";
+    if (all === "view" && level === "none") return "view";
   }
-  const data = await res.json();
-  return data.values || [];
+  return level;
+}
+function canEditModule(permissions, moduleKey) { return effectivePermission(permissions, moduleKey) === "edit"; }
+function canViewModule(permissions, moduleKey) {
+  const l = effectivePermission(permissions, moduleKey);
+  return l === "view" || l === "edit";
 }
 
 function tSync(s) {
@@ -4893,96 +5438,121 @@ function tSync(s) {
   return (lang === "en" && EN_DICT[s]) ? EN_DICT[s] : s;
 }
 
-async function sheetsWriteRow(accessToken, spreadsheetId, tabName, rowNumber, values) {
-  const range = encodeURIComponent(`${tabName}!A${rowNumber}:B${rowNumber}`);
-  const res = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
-    {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ values: [values] }),
+function useRoleAuth() {
+  const t = useT();
+  const [roles, setRoles] = useState([]);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
+  const [session, setSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(ROLE_SESSION_KEY) || "null"); } catch { return null; }
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase.rpc("okr_list_roles");
+      if (!error && data) setRoles(data);
+      setRolesLoaded(true);
+    })();
+  }, []);
+
+  const signIn = useCallback(async (roleId, password) => {
+    setError("");
+    setBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("okr_login", { p_role_id: roleId, p_password: password });
+      if (error || !data || data.length === 0) {
+        setError(t("Неверная роль или пароль."));
+        return false;
+      }
+      const roleData = data[0];
+      const s = { roleId: roleData.id, roleName: roleData.name, permissions: roleData.permissions, password };
+      setSession(s);
+      try { localStorage.setItem(ROLE_SESSION_KEY, JSON.stringify(s)); } catch {}
+      return true;
+    } catch (e) {
+      setError(e.message || t("Не удалось войти."));
+      return false;
+    } finally {
+      setBusy(false);
     }
-  );
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = (err.error && err.error.message) || "";
-    if (res.status === 403 || /permission/i.test(msg)) {
-      throw new Error(tSync("Нет прав на изменение этих данных — обратитесь к администратору."));
-    }
-    throw new Error(msg || tSync("Не удалось сохранить данные в Google Таблице."));
-  }
+  }, [t]);
+
+  const signOut = useCallback(() => {
+    setSession(null);
+    try { localStorage.removeItem(ROLE_SESSION_KEY); } catch {}
+  }, []);
+
+  return { roles, rolesLoaded, session, signIn, signOut, signOutError: error, busy, signedIn: !!session };
 }
 
-// Drop-in replacement for the local window.storage API (same get/set/delete/list shape),
-// backed by a "Key | Value" tab in a shared Google Sheet. This lets every existing
-// hook in the app (useDirectory, useProjects, TrackEditor, etc.) keep working unchanged.
-function makeSheetsStorage(accessToken, spreadsheetId) {
-  let cache = null;
-  let cacheAt = 0;
-  const TTL = 4000;
-
-  async function loadMap(force) {
-    if (!force && cache && Date.now() - cacheAt < TTL) return cache;
-    const rows = await sheetsFetchTab(accessToken, spreadsheetId, APPDATA_TAB, "A2:B200");
-    const map = {};
-    rows.forEach((r, i) => {
-      const key = r[0];
-      if (key) map[key] = { row: i + 2, value: r[1] || "" };
-    });
-    cache = map;
-    cacheAt = Date.now();
-    return map;
-  }
-
+// Drop-in replacement for the local window.storage API — backed by Supabase.
+// Reads go direct to the table (open to view); writes go through okr_save_data,
+// which re-checks the role's password and permission on every single write.
+function makeSupabaseStorage(session) {
   return {
     async get(key) {
-      const map = await loadMap(false);
-      const entry = map[key];
-      if (!entry || !entry.value) return null;
-      return { key, value: entry.value, shared: true };
+      const { data, error } = await supabase.from("okr_app_data").select("value").eq("key", key).maybeSingle();
+      if (error || !data || data.value == null) return null;
+      return { key, value: JSON.stringify(data.value), shared: true };
     },
     async set(key, value) {
-      const map = await loadMap(false);
-      let entry = map[key];
-      if (!entry) {
-        const row = Object.keys(map).length + 2;
-        entry = { row };
-        map[key] = entry;
-      }
-      await sheetsWriteRow(accessToken, spreadsheetId, APPDATA_TAB, entry.row, [key, value]);
-      entry.value = value;
+      if (!session) throw new Error(tSync("Войдите, чтобы сохранять изменения."));
+      const moduleKey = moduleKeyForDataKey(key);
+      let parsed;
+      try { parsed = JSON.parse(value); } catch { parsed = value; }
+      const { error } = await supabase.rpc("okr_save_data", {
+        p_role_id: session.roleId, p_password: session.password,
+        p_module_key: moduleKey, p_data_key: key, p_value: parsed,
+      });
+      if (error) throw new Error(error.message || tSync("Не удалось сохранить данные."));
       return { key, value, shared: true };
     },
     async delete(key) {
-      const map = await loadMap(false);
-      const entry = map[key];
-      if (entry) {
-        await sheetsWriteRow(accessToken, spreadsheetId, APPDATA_TAB, entry.row, [key, ""]);
-        entry.value = "";
-      }
-      return { key, deleted: true, shared: true };
+      return this.set(key, "null");
     },
     async list(prefix) {
-      const map = await loadMap(false);
-      const keys = Object.keys(map).filter((k) => !prefix || k.startsWith(prefix));
-      return { keys, prefix, shared: true };
+      let q = supabase.from("okr_app_data").select("key");
+      if (prefix) q = q.like("key", `${prefix}%`);
+      const { data, error } = await q;
+      if (error) return { keys: [], prefix, shared: true };
+      return { keys: (data || []).map((r) => r.key), prefix, shared: true };
     },
   };
 }
 
-async function fetchUserPermission(accessToken, spreadsheetId, email) {
-  const rows = await sheetsFetchTab(accessToken, spreadsheetId, USERS_TAB, "A2:C200");
-  const norm = (s) => String(s || "").trim().toLowerCase();
-  const match = rows.find((r) => norm(r[0]) === norm(email));
-  if (!match) return { known: false, trackId: null, isAdmin: false };
-  const trackLabel = norm(match[1]);
-  const role = norm(match[2]);
-  const isAdmin = trackLabel === "все" || trackLabel === "admin" || role === "админ" || role === "admin";
-  const track = TRACKS.find((t) => norm(t.name) === trackLabel || t.id === trackLabel);
-  return { known: true, trackId: track ? track.id : null, isAdmin };
+// Fallback used while signed out — purely local to this browser, read-only in the UI
+// (LockOverlay blocks editing before any write would ever reach this).
+function makeLocalDemoStorage() {
+  const PREFIX = "okr-app:";
+  return {
+    async get(key) {
+      try {
+        const raw = localStorage.getItem(PREFIX + key);
+        return raw === null ? null : { key, value: raw, shared: false };
+      } catch { return null; }
+    },
+    async set(key, value) {
+      try { localStorage.setItem(PREFIX + key, value); return { key, value, shared: false }; } catch { return null; }
+    },
+    async delete(key) {
+      try { localStorage.removeItem(PREFIX + key); return { key, deleted: true, shared: false }; } catch { return null; }
+    },
+    async list(prefix) {
+      try {
+        const p = PREFIX + (prefix || "");
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf(p) === 0) keys.push(k.slice(PREFIX.length));
+        }
+        return { keys, prefix, shared: false };
+      } catch { return null; }
+    },
+  };
 }
 
-const AuthCtx = createContext({ signedIn: false, isAdmin: false, myTrackId: null, email: null });
+const AuthCtx = createContext({ signedIn: false, roleId: null, roleName: null, permissions: {} });
 function useAuthCtx() { return useContext(AuthCtx); }
 
 function LockOverlay({ locked, reason, children }) {
@@ -5089,114 +5659,74 @@ function DirectoryManager({ directory, setDirectory }) {
   );
 }
 
-function useSheetSync() {
+function RoleAuthBar({ auth, onSignedInChange }) {
   const t = useT();
-  const auth = useGoogleAuth();
-  const [spreadsheetId, setSpreadsheetIdState] = useState(() => {
-    try { return localStorage.getItem(SHEET_ID_STORAGE_KEY) || ""; } catch { return ""; }
-  });
-  const [permission, setPermission] = useState({ known: false, trackId: null, isAdmin: false });
-  const [permError, setPermError] = useState("");
-  const [connected, setConnected] = useState(false);
-
-  const setSpreadsheetId = useCallback((id) => {
-    setSpreadsheetIdState(id);
-    try { localStorage.setItem(SHEET_ID_STORAGE_KEY, id); } catch {}
-  }, []);
+  const { roles, rolesLoaded, session, signIn, signOut, signOutError, busy, signedIn } = auth;
+  const [roleId, setRoleId] = useState("");
+  const [password, setPassword] = useState("");
+  const [open, setOpen] = useState(false);
+  const prevSignedIn = useRef(signedIn);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!auth.signedIn || !spreadsheetId) {
-      setConnected(false);
-      return;
+    if (signedIn !== prevSignedIn.current) {
+      prevSignedIn.current = signedIn;
+      onSignedInChange();
     }
-    (async () => {
-      try {
-        const perm = await fetchUserPermission(auth.accessToken, spreadsheetId, auth.email);
-        if (cancelled) return;
-        setPermission(perm);
-        setPermError(perm.known ? "" : `${t("Email")} ${auth.email} ${t("не найден на листе")} «${USERS_TAB}» — ${t("обратитесь к администратору.")}`);
-        window.storage = makeSheetsStorage(auth.accessToken, spreadsheetId);
-        setConnected(true);
-      } catch (e) {
-        if (!cancelled) {
-          setPermError(e.message || t("Не удалось подключиться к Google Таблице."));
-          setConnected(false);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [auth.signedIn, auth.accessToken, auth.email, spreadsheetId]);
+  }, [signedIn, onSignedInChange]);
 
-  return { auth, spreadsheetId, setSpreadsheetId, permission, permError, connected };
-}
-
-function GoogleSyncBar({ sync, onConnectedChange }) {
-  const t = useT();
-  const { auth, spreadsheetId, setSpreadsheetId, permission, permError, connected } = sync;
-  const [draftId, setDraftId] = useState(spreadsheetId);
-  const prevConnected = useRef(connected);
-
-  useEffect(() => {
-    if (connected !== prevConnected.current) {
-      prevConnected.current = connected;
-      onConnectedChange();
-    }
-  }, [connected, onConnectedChange]);
+  const handleSignIn = async () => {
+    if (!roleId || !password) return;
+    await signIn(roleId, password);
+    setPassword("");
+  };
 
   return (
-    <div className="mb-4 border border-neutral-200 rounded-xl p-3 space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-medium uppercase tracking-wide text-neutral-600 mr-1">{t("Google Таблица")}</span>
-        {!auth.signedIn ? (
-          <button
-            onClick={auth.signIn}
-            disabled={!auth.gisReady}
-            className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-50"
-          >
-            <Users size={12} /> {t("Войти через Google")}
-          </button>
+    <div className="mb-4 border border-neutral-200 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 flex-wrap px-3 py-2 bg-neutral-50 hover:bg-neutral-100 text-left">
+        {open ? <ChevronDown size={15} className="text-neutral-500 shrink-0" /> : <ChevronRight size={15} className="text-neutral-500 shrink-0" />}
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-600 mr-1">{t("Вход")}</span>
+        {!signedIn ? (
+          <span className="text-xs text-neutral-400">{t("не подключено")}</span>
         ) : (
-          <>
-            <span className="text-xs text-neutral-600">{auth.email}</span>
-            {connected && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full"
-                style={{ background: permission.isAdmin ? "#ede9fe" : "#dcfce7", color: permission.isAdmin ? "#6d28d9" : "#15803d" }}
-              >
-                {permission.isAdmin ? t("Администратор") : permission.trackId ? `${t("Редактор")}: ${(TRACKS.find(tk=>tk.id===permission.trackId)||{}).name}` : t("Только просмотр")}
-              </span>
-            )}
-            <button onClick={auth.signOut} className="text-xs text-neutral-400 hover:text-red-500 underline">{t("выйти")}</button>
-          </>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{session.roleName}</span>
         )}
-      </div>
+      </button>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <input
-          value={draftId}
-          onChange={(e) => setDraftId(e.target.value)}
-          placeholder={t("ID таблицы Google Sheets (из ссылки на таблицу)")}
-          className="flex-1 text-xs border border-neutral-200 rounded-md px-2 py-1.5 bg-neutral-50"
-          style={{ minWidth: 240 }}
-        />
-        <button
-          onClick={() => setSpreadsheetId(draftId.trim())}
-          className="text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50"
-        >
-          {t("Подключить")}
-        </button>
-      </div>
+      {open && (
+        <div className="p-3 space-y-2">
+          {!signedIn ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={roleId} onChange={(e) => setRoleId(e.target.value)} disabled={!rolesLoaded}
+                className="text-xs border border-neutral-200 rounded-md px-2 py-1.5 bg-neutral-50"
+                style={{ minWidth: 220 }}
+              >
+                <option value="">{t("Выберите роль")}</option>
+                {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <input
+                type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSignIn()}
+                placeholder={t("Пароль")}
+                className="text-xs border border-neutral-200 rounded-md px-2 py-1.5 bg-neutral-50"
+              />
+              <button
+                onClick={handleSignIn} disabled={busy || !roleId || !password}
+                className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-50"
+              >
+                <Users size={12} /> {busy ? t("Входим…") : t("Войти")}
+              </button>
+            </div>
+          ) : (
+            <button onClick={signOut} className="text-xs text-neutral-400 hover:text-red-500 underline">{t("выйти")}</button>
+          )}
 
-      {(auth.error || permError) && (
-        <div className="text-xs text-red-600">{auth.error || permError}</div>
+          {signOutError && <div className="text-xs text-red-600">{signOutError}</div>}
+          <div className="text-xs text-neutral-400">
+            {t("Без входа приложение доступно только на просмотр. Роль и пароль вам выдаёт администратор.")}
+          </div>
+        </div>
       )}
-      {auth.signedIn && spreadsheetId && !connected && !permError && (
-        <div className="text-xs text-neutral-400">{t("Подключение к таблице…")}</div>
-      )}
-      <div className="text-xs text-neutral-400">
-        {t("Без входа приложение работает локально в этом браузере (демо-режим). Со входом — данные общие для всей команды, через вашу Google Таблицу.")}
-      </div>
     </div>
   );
 }
@@ -5205,7 +5735,7 @@ export default function App() {
   const [trackId, setTrackId] = useState(TRACKS[0].id);
   const [refreshKey, setRefreshKey] = useState(0);
   const [directory, setDirectory] = useDirectory(refreshKey);
-  const sheetSync = useSheetSync();
+  const roleAuth = useRoleAuth();
   const [lang, setLang] = useState(() => {
     try { return localStorage.getItem("okr-lang") || "ru"; } catch { return "ru"; }
   });
@@ -5218,12 +5748,20 @@ export default function App() {
   };
   const t = (s) => (lang === "en" && EN_DICT[s]) ? EN_DICT[s] : s;
 
+  const permissions = roleAuth.session ? roleAuth.session.permissions : {};
   const authCtxValue = {
-    signedIn: sheetSync.connected,
-    isAdmin: sheetSync.connected && sheetSync.permission.isAdmin,
-    myTrackId: sheetSync.connected ? sheetSync.permission.trackId : null,
-    email: sheetSync.auth.email,
+    signedIn: roleAuth.signedIn,
+    roleId: roleAuth.session ? roleAuth.session.roleId : null,
+    roleName: roleAuth.session ? roleAuth.session.roleName : null,
+    permissions,
+    isAdmin: canEditModule(permissions, "privileges"),
+    canEdit: (moduleKey) => canEditModule(permissions, moduleKey),
+    canView: (moduleKey) => canViewModule(permissions, moduleKey),
   };
+
+  useEffect(() => {
+    window.storage = roleAuth.session ? makeSupabaseStorage(roleAuth.session) : makeLocalDemoStorage();
+  }, [roleAuth.session]);
 
   return (
     <LanguageCtx.Provider value={lang}>
@@ -5233,9 +5771,6 @@ export default function App() {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h1 className="text-lg font-medium">{t("OKR-конструктор трека")}</h1>
-            <p className="text-sm text-neutral-500 mt-0.5 max-w-3xl">
-              {t("Волна 1–6 мес. декомпозируется сразу. Волны 7–12 и 13–18 стартуют как цель-ориентир — раскладывайте их на контрольной точке, ближе к делу. У каждого Objective — владелец, у каждой задачи — ответственный из справочника.")}
-            </p>
           </div>
           <button
             onClick={toggleLang}
@@ -5246,22 +5781,25 @@ export default function App() {
           </button>
         </div>
 
-        <GoogleSyncBar sync={sheetSync} onConnectedChange={() => setRefreshKey((k) => k + 1)} />
+        <RoleAuthBar auth={roleAuth} onSignedInChange={() => setRefreshKey((k) => k + 1)} />
 
         <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
 
-        <LockOverlay locked={!authCtxValue.isAdmin} reason={t("Справочник редактирует администратор")}>
-          <DirectoryManager directory={directory} setDirectory={setDirectory} />
-        </LockOverlay>
+        {authCtxValue.canView("directory") && (
+          <LockOverlay locked={!authCtxValue.canEdit("directory")} reason={t("Справочник редактирует администратор")}>
+            <DirectoryManager directory={directory} setDirectory={setDirectory} />
+          </LockOverlay>
+        )}
 
         <div className="flex gap-1 mb-4 flex-wrap">
-          {TRACKS.map((t) => {
-            const color = TRACK_COLORS[t.id];
-            const active = trackId === t.id;
+          {TRACKS.map((tr) => {
+            if (!authCtxValue.canView(`track_${tr.id}`)) return null;
+            const color = TRACK_COLORS[tr.id];
+            const active = trackId === tr.id;
             return (
               <button
-                key={t.id}
-                onClick={() => setTrackId(t.id)}
+                key={tr.id}
+                onClick={() => setTrackId(tr.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border"
                 style={
                   active
@@ -5270,69 +5808,103 @@ export default function App() {
                 }
               >
                 <span className="w-2 h-2 rounded-full shrink-0" style={{ background: active ? "#fff" : color }} />
-                {t.name}
+                {tr.name}
               </button>
             );
           })}
-          <button
-            onClick={() => setTrackId("combined")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
-              trackId === "combined" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-            }`}
-          >
-            <Network size={13} /> {t("Общее дерево OKR")}
-          </button>
-          <button
-            onClick={() => setTrackId("projects")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
-              trackId === "projects" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-            }`}
-          >
-            <Briefcase size={13} /> {t("Проекты")}
-          </button>
-          <button
-            onClick={() => setTrackId("dashboard")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
-              trackId === "dashboard" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-            }`}
-          >
-            <BarChart3 size={13} /> {t("Дашборд трекинга")}
-          </button>
-          <button
-            onClick={() => setTrackId("gantt")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
-              trackId === "gantt" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-            }`}
-          >
-            <CalendarRange size={13} /> {t("Гант")}
-          </button>
+          {authCtxValue.canView("combined_tree") && (
+            <button
+              onClick={() => setTrackId("combined")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "combined" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <Network size={13} /> {t("Общее дерево OKR")}
+            </button>
+          )}
+          {authCtxValue.canView("projects") && (
+            <button
+              onClick={() => setTrackId("projects")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "projects" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <Briefcase size={13} /> {t("Проекты")}
+            </button>
+          )}
+          {authCtxValue.canView("projects_dashboard") && (
+            <button
+              onClick={() => setTrackId("projects-dashboard")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "projects-dashboard" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <PieChart size={13} /> {t("Дашборд проектов")}
+            </button>
+          )}
+          {authCtxValue.canView("tracking_dashboard") && (
+            <button
+              onClick={() => setTrackId("dashboard")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "dashboard" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <BarChart3 size={13} /> {t("Дашборд трекинга")}
+            </button>
+          )}
+          {authCtxValue.canView("gantt") && (
+            <button
+              onClick={() => setTrackId("gantt")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "gantt" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <CalendarRange size={13} /> {t("Гант")}
+            </button>
+          )}
+          {authCtxValue.canView("privileges") && (
+            <button
+              onClick={() => setTrackId("privileges")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "privileges" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <ShieldCheck size={13} /> {t("Управление привилегиями")}
+            </button>
+          )}
         </div>
 
         <AuthCtx.Provider value={authCtxValue}>
         <DirectoryCtx.Provider value={directory}>
-          {trackId === "combined" ? (
+          {trackId === "combined" && authCtxValue.canView("combined_tree") ? (
             <CombinedTree key={`combined-${refreshKey}`} />
-          ) : trackId === "projects" ? (
-            <LockOverlay locked={!authCtxValue.isAdmin} reason={t("Проекты редактирует администратор")}>
+          ) : trackId === "projects" && authCtxValue.canView("projects") ? (
+            <LockOverlay locked={!authCtxValue.canEdit("projects")} reason={t("Проекты редактирует администратор")}>
               <ProjectsModule key={`projects-${refreshKey}`} />
             </LockOverlay>
-          ) : trackId === "dashboard" ? (
+          ) : trackId === "projects-dashboard" && authCtxValue.canView("projects_dashboard") ? (
+            <ProjectsDashboard key={`projects-dashboard-${refreshKey}`} />
+          ) : trackId === "dashboard" && authCtxValue.canView("tracking_dashboard") ? (
             <TrackingDashboard key={`dashboard-${refreshKey}`} />
-          ) : trackId === "gantt" ? (
+          ) : trackId === "gantt" && authCtxValue.canView("gantt") ? (
             <GanttChart key={`gantt-${refreshKey}`} />
-          ) : (
+          ) : trackId === "privileges" && authCtxValue.canView("privileges") ? (
+            <PrivilegesManager key={`privileges-${refreshKey}`} auth={roleAuth} />
+          ) : TRACKS.some((tr) => tr.id === trackId) && authCtxValue.canView(`track_${trackId}`) ? (
             <LockOverlay
-              locked={!(authCtxValue.isAdmin || authCtxValue.myTrackId === trackId)}
+              locked={!authCtxValue.canEdit(`track_${trackId}`)}
               reason={
                 !authCtxValue.signedIn
-                  ? t("Войдите через Google, чтобы редактировать")
-                  : authCtxValue.myTrackId
-                  ? t("Доступен только просмотр — это не ваш трек")
-                  : t("Ваш email не назначен ни на один трек — обратитесь к администратору")
+                  ? t("Войдите, чтобы редактировать")
+                  : t("Доступен только просмотр")
               }
             >
               <TrackEditor key={`${trackId}-${refreshKey}`} trackId={trackId} />
             </LockOverlay>
+          ) : (
+            <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
+              {t("Этот раздел вам недоступен — войдите под ролью с нужными правами.")}
+            </div>
           )}
         </DirectoryCtx.Provider>
         </AuthCtx.Provider>
