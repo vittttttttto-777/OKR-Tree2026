@@ -44,6 +44,12 @@ const EN_DICT = {
   "Волна — полугодовой этап": "Wave — half-year stage",
   "Квартал — операционный план": "Quarter — the operating plan",
   "Пока нет заполненных целей ни в одном треке.": "No goals filled in yet in any track.",
+  "Дерево ещё не открыто": "The tree hasn't been opened yet",
+  "Войдите под своей ролью — и увидите свою ветку: от цели на 18 месяцев до задач этой недели.":
+    "Sign in with your role to see your branch — from the 18-month goal down to this week's tasks.",
+  "Этот раздел не по вашей роли": "This section isn't part of your role",
+  "У вашей роли нет доступа сюда — переключитесь на раздел, который вам доступен, или попросите администратора расширить права.":
+    "Your role doesn't have access here — switch to a section you can view, or ask an administrator to extend your permissions.",
 
   "Google Таблица": "Google Sheet",
   "не подключено": "not connected",
@@ -5731,6 +5737,58 @@ function RoleAuthBar({ auth, onSignedInChange }) {
   );
 }
 
+// ---- Signature illustration for the empty/logged-out state — a rolling-wave tree of goals ----
+// Trunk = mission (grounded, singular). It splits into 5 branches, one per track, each carrying
+// the track's own brand color. Branches thin out into small leaf-clusters — the nearer a leaf
+// sits to the trunk, the larger it is (an 18-month Outcome); the further out, the smaller and more
+// numerous (a week's task). A dashed ring behind it echoes the app's own empty-state border and
+// stands for the 18-month horizon the whole tree grows inside.
+function GoalsTreeIllustration() {
+  const branches = [
+    { color: "#16a34a", d: "M150,232 C120,190 78,168 40,152", leaves: [[40, 152, 5], [58, 138, 3.5], [30, 133, 3]] },
+    { color: "#ca8a04", d: "M150,232 C132,180 118,140 108,96", leaves: [[108, 96, 5], [92, 82, 3.5], [122, 76, 3]] },
+    { color: "#b45309", d: "M150,232 C150,178 150,132 150,84", leaves: [[150, 84, 5.5], [134, 66, 3.5], [166, 66, 3.5]] },
+    { color: "#8b5cf6", d: "M150,232 C168,180 182,140 192,96", leaves: [[192, 96, 5], [178, 82, 3], [208, 76, 3.5]] },
+    { color: "#f87171", d: "M150,232 C180,190 222,168 260,152", leaves: [[260, 152, 5], [242, 138, 3], [270, 133, 3.5]] },
+  ];
+  return (
+    <svg viewBox="0 0 300 250" className="w-full h-auto" role="img" aria-hidden="true">
+      <ellipse cx="150" cy="128" rx="132" ry="112" fill="none" stroke="#e5e5e5" strokeWidth="1" strokeDasharray="3 5" />
+      <line x1="70" y1="234" x2="230" y2="234" stroke="#e5e5e5" strokeWidth="1" />
+      {branches.map((b, i) => (
+        <g key={i}>
+          <path d={b.d} fill="none" stroke={b.color} strokeWidth="2.5" strokeLinecap="round" opacity="0.85" />
+          {b.leaves.map(([x, y, r], j) => (
+            <circle key={j} cx={x} cy={y} r={r} fill={b.color} opacity={j === 0 ? 0.9 : 0.55} />
+          ))}
+        </g>
+      ))}
+      <path d="M150,232 C150,214 150,200 150,190" fill="none" stroke="#1F4E3D" strokeWidth="5" strokeLinecap="round" />
+      <path d="M150,234 C138,240 122,242 108,240" fill="none" stroke="#1F4E3D" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+      <path d="M150,234 C162,240 178,242 192,240" fill="none" stroke="#1F4E3D" strokeWidth="2" strokeLinecap="round" opacity="0.5" />
+    </svg>
+  );
+}
+
+function EmptyStateInvite({ signedIn }) {
+  const t = useT();
+  return (
+    <div className="flex flex-col items-center text-center py-10 px-6 border border-dashed border-neutral-200 rounded-xl">
+      <div className="w-48 sm:w-56">
+        <GoalsTreeIllustration />
+      </div>
+      <div className="mt-2 text-sm font-medium text-neutral-700">
+        {signedIn ? t("Этот раздел не по вашей роли") : t("Дерево ещё не открыто")}
+      </div>
+      <div className="mt-1 text-sm text-neutral-400 max-w-sm">
+        {signedIn
+          ? t("У вашей роли нет доступа сюда — переключитесь на раздел, который вам доступен, или попросите администратора расширить права.")
+          : t("Войдите под своей ролью — и увидите свою ветку: от цели на 18 месяцев до задач этой недели.")}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [trackId, setTrackId] = useState(TRACKS[0].id);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -5902,9 +5960,7 @@ export default function App() {
               <TrackEditor key={`${trackId}-${refreshKey}`} trackId={trackId} />
             </LockOverlay>
           ) : (
-            <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
-              {t("Этот раздел вам недоступен — войдите под ролью с нужными правами.")}
-            </div>
+            <EmptyStateInvite signedIn={authCtxValue.signedIn} />
           )}
         </DirectoryCtx.Provider>
         </AuthCtx.Provider>
