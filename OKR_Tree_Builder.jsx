@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   ChevronDown, ChevronRight, Plus, Trash2, Target, Flag,
-  Layers, CalendarRange, ListChecks, CheckCircle2, Circle, Sparkles, Users, Network, Briefcase, Search,
+  Layers, CalendarRange, ListChecks, CheckCircle2, Circle, Sparkles, Users, User, Network, Briefcase, Search,
   Download, Upload, Activity, BarChart3, PieChart, ShieldCheck
 } from "lucide-react";
 
@@ -122,6 +122,9 @@ const EN_DICT = {
   "Одна из главных стратегических целей трека на 18 месяцев": "One of the track's main strategic goals over 18 months",
   "Владелец Objective:": "Objective owner:",
   "Без ответственного": "No owner",
+  "Ответственный": "Owner",
+  "Назначить ответственного": "Assign owner",
+  "Ответственный за задачу": "Task owner",
   "Добавить KR Outcome": "Add KR Outcome",
   "Добавить главную цель": "Add main goal",
   "Ключевой результат стратегической цели (18 мес.)": "Key result of the strategic goal (18 mo.)",
@@ -2820,14 +2823,95 @@ const TONES = {
   project: { bg: "bg-indigo-50", border: "border-indigo-200", label: "text-indigo-800", icon: "text-indigo-500", iconWrap: "text-indigo-600" },
 };
 
+function OwnerPickerModal({ value, onChange, onClose, title }) {
+  const t = useT();
+  const directory = useDirectoryList();
+  const groups = { company: [], department: [], function: [] };
+  directory.forEach((d) => { if (groups[d.type]) groups[d.type].push(d); });
+  const typeLabel = { company: t("Компания"), department: t("Отделы"), function: t("Функции") };
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-4 w-full max-w-xs space-y-1.5 max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold text-neutral-800 mb-1.5">{title || t("Ответственный")}</div>
+        <button
+          onClick={() => onChange("")}
+          className={
+            "w-full text-left text-xs rounded-lg px-2.5 py-1.5 border " +
+            (!value ? "border-neutral-800 bg-neutral-50 font-medium" : "border-neutral-200 text-neutral-500 hover:bg-neutral-50")
+          }
+        >
+          {t("Без ответственного")}
+        </button>
+        {Object.entries(groups).map(([type, items]) =>
+          items.length ? (
+            <div key={type} className="pt-1.5 space-y-1">
+              <div className="t11 text-neutral-400 uppercase tracking-wide px-0.5">{typeLabel[type]}</div>
+              {items.map((it) => (
+                <button
+                  key={it.id}
+                  onClick={() => onChange(it.id)}
+                  className={
+                    "w-full text-left text-xs rounded-lg px-2.5 py-1.5 border " +
+                    (value === it.id ? "border-neutral-800 bg-neutral-50 font-medium" : "border-neutral-200 hover:bg-neutral-50")
+                  }
+                >
+                  {it.name}
+                </button>
+              ))}
+            </div>
+          ) : null
+        )}
+        <button onClick={onClose} className="w-full text-xs text-neutral-400 hover:text-neutral-600 pt-2">
+          {t("Отмена")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function OwnerBadge({ value, onChange, title }) {
+  const t = useT();
+  const directory = useDirectoryList();
+  const [open, setOpen] = useState(false);
+  const owner = directory.find((d) => d.id === value);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={t("Назначить ответственного")}
+        className={
+          "shrink-0 flex items-center gap-1 rounded-md border px-1.5 py-0.5 t11 max-w-[6.5rem] " +
+          (owner
+            ? "border-neutral-200 bg-neutral-50 text-neutral-600"
+            : "border-dashed border-neutral-200 text-neutral-400 hover:text-neutral-600 hover:border-neutral-300")
+        }
+      >
+        <User size={11} className="shrink-0" />
+        <span className="truncate">{owner ? owner.name : t("Без ответственного")}</span>
+      </button>
+      {open && (
+        <OwnerPickerModal
+          value={value}
+          title={title}
+          onChange={(v) => { onChange(v); setOpen(false); }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 function TaskRow({ path, task, idx, onRemove }) {
   const t = useT();
   const update = useUpdate();
   return (
     <div className="flex items-center gap-1.5 pl-6 py-0.5">
       <Circle size={6} className="text-neutral-300 shrink-0" />
-      <Field small value={task.text} placeholder={`${t("Задача")} ${idx + 1}`} onChange={(v) => update([...path, "text"], v)} />
-      <OwnerSelect value={task.ownerId} onChange={(v) => update([...path, "ownerId"], v)} compact />
+      <div className="flex-1 min-w-0">
+        <Field small value={task.text} placeholder={`${t("Задача")} ${idx + 1}`} onChange={(v) => update([...path, "text"], v)} />
+      </div>
+      <OwnerBadge value={task.ownerId} onChange={(v) => update([...path, "ownerId"], v)} title={t("Ответственный за задачу")} />
       <button onClick={onRemove} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
         <Trash2 size={12} />
       </button>
@@ -4746,7 +4830,7 @@ function GanttChart() {
 
       <div className="border border-neutral-200 rounded-xl overflow-hidden">
         <div className="flex items-end border-b border-neutral-200 bg-neutral-50 px-2 pt-2 pb-1">
-          <div style={{ width: 230 }} className="shrink-0" />
+          <div style={{ width: 270 }} className="shrink-0" />
           <Timeline>
             {ticks.map((tk) => (
               <span key={tk.iso} className="absolute t10 text-neutral-400" style={{ left: `${tk.pct}%`, bottom: 2, transform: "translateX(2px)" }}>
@@ -4778,13 +4862,13 @@ function GanttChart() {
             return (
               <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50" style={{ paddingTop: 5, paddingBottom: 5 }}>
                 <TreeGutter depth={r.depth} guides={r.guides} isLast={r.isLast} />
-                <div style={{ width: 230 - r.depth * GANTT_GUIDE_STEP }} className="shrink-0 pr-2 min-w-0">
+                <div style={{ width: 270 - r.depth * GANTT_GUIDE_STEP }} className="shrink-0 pr-2 min-w-0">
                   <div className="t10 text-neutral-400 flex items-center gap-1">
                     {r.depth === 0 && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TRACK_COLORS[r.trackId] }} />}
                     <span className="truncate">{r.depth === 0 ? r.trackName + " · " : ""}{t(r.levelKey)}{r.levelExtra ? ` ${r.levelExtra}` : ""}</span>
                   </div>
                   {r.title && (
-                    <div className="text-xs text-neutral-800 truncate">
+                    <div className="text-xs text-neutral-800 truncate" title={r.title}>
                       <TranslatedText text={r.title} />
                     </div>
                   )}
