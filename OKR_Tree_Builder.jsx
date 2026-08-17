@@ -2779,31 +2779,25 @@ function ObjectiveField({ label, labelColor, textPath, ownerPath, text, ownerId,
 
 function Collapsible({ title, subtitle, icon, tone, accentColor, defaultOpen = true, right, children }) {
   const [open, setOpen] = useState(defaultOpen);
-  const wrapStyle = accentColor ? { borderColor: accentColor, background: accentColor + "10" } : undefined;
-  const textStyle = accentColor ? { color: accentColor } : undefined;
+  const outerStyle = accentColor ? { borderColor: accentColor } : undefined;
+  const headerStyle = accentColor ? { background: accentColor + "10", color: accentColor } : undefined;
   return (
-    <div className={`rounded-xl border overflow-hidden ${accentColor ? "" : `${tone.border} ${tone.bg}`}`} style={wrapStyle}>
-      <div className="flex items-start gap-2 px-3 py-2 min-w-0">
+    <div className={`rounded-xl border overflow-hidden bg-white ${accentColor ? "" : tone.border}`} style={outerStyle}>
+      <div
+        className={`flex items-start gap-2 px-3 py-2 min-w-0 ${accentColor ? "" : `${tone.bg} ${tone.label}`}`}
+        style={headerStyle}
+      >
         <button onClick={() => setOpen((o) => !o)} className="flex items-start gap-2 flex-1 min-w-0 text-left">
-          {open ? (
-            <ChevronDown size={15} className={accentColor ? "shrink-0 mt-0.5" : tone.icon + " shrink-0 mt-0.5"} style={textStyle} />
-          ) : (
-            <ChevronRight size={15} className={accentColor ? "shrink-0 mt-0.5" : tone.icon + " shrink-0 mt-0.5"} style={textStyle} />
-          )}
-          <span className={accentColor ? "shrink-0 mt-0.5" : tone.iconWrap + " shrink-0 mt-0.5"} style={textStyle}>{icon}</span>
+          {open ? <ChevronDown size={15} className="shrink-0 mt-0.5" /> : <ChevronRight size={15} className="shrink-0 mt-0.5" />}
+          <span className="shrink-0 mt-0.5">{icon}</span>
           <span className="min-w-0 flex-1 flex flex-wrap items-baseline gap-x-1">
-            <span
-              className={`text-xs font-medium tracking-wide uppercase break-words ${accentColor ? "" : tone.label}`}
-              style={textStyle}
-            >
-              {title}
-            </span>
-            {subtitle && <span className="text-xs text-neutral-400 break-words">· {subtitle}</span>}
+            <span className="text-xs font-medium tracking-wide uppercase break-words">{title}</span>
+            {subtitle && <span className="text-xs opacity-70 break-words">· {subtitle}</span>}
           </span>
         </button>
         {right}
       </div>
-      {open && <div className="px-3 pb-3">{children}</div>}
+      {open && <div className="px-3 pb-3 bg-white">{children}</div>}
     </div>
   );
 }
@@ -2813,17 +2807,27 @@ const TRACK_TONE_TEXT = {
   "coral-evo": "text-violet-700", "it-model": "text-red-500",
 };
 
+// Palette per the reference: bold solid header for the "big" strategic levels (18/6-month
+// horizons), quiet neutral for the "detail" levels nested one horizon down (Output/Milestone),
+// and each level keeps ONE color everywhere it appears — track editor cards, combined tree,
+// and the Gantt. Collapsible only paints the header strip with this — card body stays plain
+// white so nested fields underneath stay fully readable regardless of how bold the tone is.
 const TONES = {
-  mission: { bg: "bg-amber-50", border: "border-amber-200", label: "text-amber-800", icon: "text-amber-500", iconWrap: "text-amber-600" },
-  outcome: { bg: "bg-yellow-50", border: "border-yellow-200", label: "text-yellow-800", icon: "text-yellow-500", iconWrap: "text-yellow-600" },
-  initiative: { bg: "bg-blue-50", border: "border-blue-200", label: "text-blue-800", icon: "text-blue-500", iconWrap: "text-blue-600" },
-  output: { bg: "bg-teal-50", border: "border-teal-200", label: "text-teal-800", icon: "text-teal-500", iconWrap: "text-teal-600" },
-  wave: { bg: "bg-emerald-50", border: "border-emerald-200", label: "text-emerald-800", icon: "text-emerald-500", iconWrap: "text-emerald-600" },
-  waveTarget: { bg: "bg-neutral-50", border: "border-neutral-200 border-dashed", label: "text-neutral-500", icon: "text-neutral-400", iconWrap: "text-neutral-400" },
-  quarter: { bg: "bg-rose-50", border: "border-rose-200", label: "text-rose-800", icon: "text-rose-500", iconWrap: "text-rose-600" },
-  month: { bg: "bg-white", border: "border-neutral-200", label: "text-neutral-600", icon: "text-neutral-400", iconWrap: "text-neutral-400" },
-  project: { bg: "bg-indigo-50", border: "border-indigo-200", label: "text-indigo-800", icon: "text-indigo-500", iconWrap: "text-indigo-600" },
+  mission: { bg: "bg-emerald-900", border: "border-emerald-900", label: "text-white" },
+  outcome: { bg: "bg-pink-200", border: "border-pink-300", label: "text-neutral-800" },
+  initiative: { bg: "bg-emerald-900", border: "border-emerald-900", label: "text-white" },
+  output: { bg: "bg-neutral-100", border: "border-neutral-300", label: "text-neutral-800" },
+  wave: { bg: "bg-blue-900", border: "border-blue-900", label: "text-white" },
+  waveTarget: { bg: "bg-neutral-50", border: "border-neutral-200 border-dashed", label: "text-neutral-500" },
+  quarter: { bg: "bg-neutral-100", border: "border-neutral-300", label: "text-neutral-800" },
+  month: { bg: "bg-green-600", border: "border-green-600", label: "text-white" },
+  task: { bg: "bg-amber-100", border: "border-amber-200", label: "text-neutral-800" },
+  project: { bg: "bg-indigo-50", border: "border-indigo-200", label: "text-indigo-800" },
 };
+
+// Same tones as the track editor, indexed by Gantt row depth (0=Главная цель … 6=Задача) —
+// so the hierarchy reads the same way in the Gantt as it does in the editor.
+const GANTT_DEPTH_TONE = [TONES.mission, TONES.outcome, TONES.output, TONES.wave, TONES.quarter, TONES.month, TONES.task];
 
 function OwnerPickerModal({ value, onChange, onClose, title }) {
   const t = useT();
@@ -3349,7 +3353,7 @@ function CombinedQuarter({ quarter, trackId, trackName }) {
         </Linkable>
       )}
       {months.length > 0 && (
-        <div className="space-y-1 pt-1 border-t border-rose-100">
+        <div className="space-y-1 pt-1 border-t border-neutral-200">
           {months.map((m) => <CombinedMonthCompact key={m.id} month={m} trackId={trackId} trackName={trackName} />)}
         </div>
       )}
@@ -4836,6 +4840,17 @@ function GanttChart() {
       {trackControl}
       {depthControl}
 
+      <div className="flex items-center gap-4 t11 flex-wrap justify-center">
+        {["Главная цель", "KR Outcome", "KR Output", "Волна", "Квартал", "KR месяца", "Задача"].map((key, i) => {
+          const tone = GANTT_DEPTH_TONE[i];
+          return (
+            <span key={key} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${tone.bg} ${tone.border} ${tone.label}`}>
+              {t(key)}
+            </span>
+          );
+        })}
+      </div>
+
       <div className="border border-neutral-200 rounded-xl overflow-hidden">
         <div className="flex items-end border-b border-neutral-200 bg-neutral-50 px-2 pt-2 pb-1">
           <div style={{ width: 270 }} className="shrink-0" />
@@ -4867,16 +4882,25 @@ function GanttChart() {
             const barRight = clamp01to100((daysBetweenISO(rangeStart, r.end) / totalDays) * 100);
             const daysLeft = daysBetweenISO(todayISO(), r.end);
             const barColor = r.tracked ? deadlineUrgency(daysLeft).color : "#c4c4c4";
+            const tone = GANTT_DEPTH_TONE[r.depth] || TONES.task;
             return (
-              <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50" style={{ paddingTop: 5, paddingBottom: 5 }}>
+              <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50">
                 <TreeGutter depth={r.depth} guides={r.guides} isLast={r.isLast} />
-                <div style={{ width: 270 - r.depth * GANTT_GUIDE_STEP }} className="shrink-0 pr-2 min-w-0">
-                  <div className="t10 text-neutral-400 flex items-center gap-1">
-                    {r.depth === 0 && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TRACK_COLORS[r.trackId] }} />}
+                <div
+                  style={{ width: 270 - r.depth * GANTT_GUIDE_STEP }}
+                  className={`shrink-0 pr-2 pl-1.5 py-[5px] min-w-0 border-l-4 ${tone.border} ${tone.bg} ${tone.label}`}
+                >
+                  <div className="t10 flex items-center gap-1 opacity-80">
+                    {r.depth === 0 && (
+                      <span
+                        className="w-1.5 h-1.5 rounded-full shrink-0"
+                        style={{ background: TRACK_COLORS[r.trackId], boxShadow: "0 0 0 1.5px rgba(255,255,255,0.8)" }}
+                      />
+                    )}
                     <span className="truncate">{r.depth === 0 ? r.trackName + " · " : ""}{t(r.levelKey)}{r.levelExtra ? ` ${r.levelExtra}` : ""}</span>
                   </div>
                   {r.title && (
-                    <div className="text-xs text-neutral-800 truncate" title={r.title}>
+                    <div className="text-xs truncate" title={r.title}>
                       <TranslatedText text={r.title} />
                     </div>
                   )}
