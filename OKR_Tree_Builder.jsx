@@ -4,7 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   ChevronDown, ChevronRight, Plus, Trash2, Target, Flag,
   Layers, CalendarRange, ListChecks, CheckCircle2, Circle, Sparkles, Users, User, Network, Briefcase, Search,
-  Download, Upload, Activity, BarChart3, PieChart, ShieldCheck
+  Download, Upload, Activity, BarChart3, PieChart, ShieldCheck, FileUp, Eye
 } from "lucide-react";
 
 // ---- Language toggle (RU / EN) — translates app UI chrome; user-entered content stays as typed ----
@@ -122,6 +122,48 @@ const EN_DICT = {
   "Одна из главных стратегических целей трека на 18 месяцев": "One of the track's main strategic goals over 18 months",
   "Владелец Objective:": "Objective owner:",
   "Без ответственного": "No owner",
+  "Импорт задач из Bitrix24": "Import tasks from Bitrix24",
+  "Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги».":
+    "Bitrix24 task export file (.xls) — columns \u201cName\u201d, \u201cDeadline\u201d, \u201cTags\u201d.",
+  "Загрузить файл Bitrix": "Upload Bitrix file",
+  "Загружено строк: ": "Rows loaded: ",
+  "не нашёл таблицу с колонкой «Название» в файле": "couldn't find a table with a \u201cName\u201d column in the file",
+  "Загрузите файл выгрузки задач из Bitrix24, чтобы начать проверку.": "Upload a Bitrix24 task export file to start reviewing.",
+  "Отмечено к применению:": "Marked for applying:",
+  "Принять все": "Accept all",
+  "Применить отмеченное": "Apply marked",
+  "Трек…": "Track…",
+  "срок": "due",
+  "не размещено": "not placed yet",
+  "Текст": "Text",
+  "Главная цель…": "Ultimate objective…",
+  "новая Главная цель": "new ultimate objective",
+  "KR Outcome…": "KR Outcome…",
+  "новый KR Outcome": "new KR Outcome",
+  "KR Outcome появится после создания цели": "KR Outcome becomes available once the goal is created",
+  "KR Output…": "KR Output…",
+  "Волна…": "Wave…",
+  "Квартал…": "Quarter…",
+  "Месяц…": "Month…",
+  "Загрузка трека…": "Loading track…",
+  "Ничего не применено — проверьте лимиты (например, максимум Главных целей/KR Outcome/задач в месяце).":
+    "Nothing was applied — check the limits (e.g. max ultimate objectives / KR Outcomes / tasks per month).",
+  "Применено: ": "Applied: ",
+  "Ошибка применения: ": "Apply error: ",
+  "Импорт из Bitrix24": "Import from Bitrix24",
+  "Импорт доступен администратору": "Import is available to the administrator",
+  "черновик": "draft",
+  "Objective волны (6 мес.)": "Wave objective (6 mo.)",
+  "Инициатива квартала (3 мес.)": "Quarter initiative (3 mo.)",
+  "Готовы к применению:": "Ready to apply:",
+  "на конфликте (остаются черновиком в Ганте):": "in conflict (stay as a Gantt draft):",
+  "конфликтных строк оставлено на доработку: ": "conflicting rows left for cleanup: ",
+  "конфликт — сначала виден только в Ганте": "conflict — visible only in the Gantt for now",
+  "будет объединено рядом с существующим при применении": "will be merged alongside the existing text when applied",
+  "применить всё равно (дописать рядом)": "apply anyway (append alongside)",
+  "применить всё равно (добавить рядом)": "apply anyway (add alongside)",
+  "Похожая задача уже есть в этом месяце": "A similar task already exists in this month",
+  "Сейчас там:": "Currently there:",
   "Ответственный": "Owner",
   "Назначить ответственного": "Assign owner",
   "Ответственный за задачу": "Task owner",
@@ -2909,16 +2951,22 @@ function TaskRow({ path, task, idx, onRemove }) {
   const t = useT();
   const update = useUpdate();
   const hasOwner = !!task.ownerId;
+  const isDup = task.text.startsWith(IMPORT_TASK_DUPLICATE_PREFIX);
   return (
     <div className="flex items-center gap-1.5 pl-6 py-0.5">
       <Circle size={6} className="text-neutral-300 shrink-0" />
+      {isDup && (
+        <span className="t10 shrink-0 px-1 rounded font-medium" style={{ background: "#FED7AA", color: "#9A3412" }} title={t("Возможный дубль — сравните с похожей задачей рядом и удалите лишнее")}>
+          ⚠
+        </span>
+      )}
       <div className="flex-1 min-w-0">
         <Field
           small
           value={task.text}
           placeholder={`${t("Задача")} ${idx + 1}`}
           onChange={(v) => update([...path, "text"], v)}
-          frame={hasOwner ? "border-neutral-300" : "border-red-300"}
+          frame={isDup ? "border-orange-300" : hasOwner ? "border-neutral-300" : "border-red-300"}
         />
       </div>
       <OwnerIconButton value={task.ownerId} onChange={(v) => update([...path, "ownerId"], v)} title={t("Ответственный за задачу")} />
@@ -3321,15 +3369,20 @@ function CombinedMonthCompact({ month, trackId, trackName }) {
       )}
       {tasks.length > 0 && (
         <div className="pl-3.5 space-y-0.5 mt-0.5">
-          {tasks.map((t) => (
-            <Linkable key={t.id} link={{ trackId, trackName, itemId: t.id, itemLabel: `Задача — ${truncate(t.text)}` }}>
-              <div className="flex items-center gap-1.5">
-                <Circle size={5} className="text-neutral-300 shrink-0" />
-                <span className="t11 text-neutral-600 truncate flex-1"><TranslatedText text={t.text} /></span>
-                <Owner id={t.ownerId} />
-              </div>
-            </Linkable>
-          ))}
+          {tasks.map((t) => {
+            const isDup = t.text.startsWith(IMPORT_TASK_DUPLICATE_PREFIX);
+            return (
+              <Linkable key={t.id} link={{ trackId, trackName, itemId: t.id, itemLabel: `Задача — ${truncate(t.text)}` }}>
+                <div className="flex items-center gap-1.5">
+                  <Circle size={5} className={isDup ? "text-orange-400 shrink-0" : "text-neutral-300 shrink-0"} />
+                  <span className={isDup ? "t11 text-orange-700 truncate flex-1" : "t11 text-neutral-600 truncate flex-1"}>
+                    <TranslatedText text={t.text} />
+                  </span>
+                  <Owner id={t.ownerId} />
+                </div>
+              </Linkable>
+            );
+          })}
         </div>
       )}
     </div>
@@ -4516,6 +4569,73 @@ function lastVisibleIndex(arr, hasContentFn) {
   return last;
 }
 
+// ---- Bitrix import preview overlay for the Gantt ----
+function useBitrixDraftRows() {
+  const [drafts, setDrafts] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-bitrix-import:draft", false);
+        const d = res ? JSON.parse(res.value) : [];
+        setDrafts(Array.isArray(d) ? d.filter((r) => r.include && r.trackId && pathIsComplete(r.levelKey, r.path)) : []);
+      } catch { setDrafts([]); }
+      setLoaded(true);
+    })();
+  }, []);
+  return [drafts, loaded];
+}
+
+const IMPORT_EDIT_ROW_ID = {
+  mission: (p) => `uo-${p.uoId}`, initiative: (p) => `o-${p.outcomeId}`,
+  wave: (p) => `w-${p.waveId}`, quarterInitiative: (p) => `q-${p.quarterId}`, month: (p) => `m-${p.monthId}`,
+};
+
+// Merges reviewed-but-not-yet-applied Bitrix rows into one track's already-built Gantt rows —
+// new tasks (and brand-new Главная цель / KR Outcome) get inserted as dashed "draft" rows;
+// everything else (filling text on a node that already exists) highlights that existing row.
+function injectDraftRows(trackRows, drafts, trackId, trackName) {
+  const relevant = drafts.filter((d) => d.trackId === trackId);
+  if (relevant.length === 0) return trackRows;
+  let out = trackRows.slice();
+  relevant.forEach((d) => {
+    const text = d.editedText || d.rawText;
+    if (d.levelKey === "task") {
+      const idx = out.findIndex((r) => r.id === `m-${d.path.monthId}`);
+      if (idx === -1) return;
+      const parent = out[idx];
+      out.splice(idx + 1, 0, {
+        id: `draft-${d.rowId}`, depth: parent.depth + 1, guides: [...parent.guides, false], isLast: true,
+        trackId, trackName, levelKey: "Задача", levelExtra: "",
+        title: text, start: todayISO(), end: todayISO(), tracked: false, isTask: true, draft: true,
+      });
+      return;
+    }
+    if (d.levelKey === "mission" && d.path.uoId === "__new__") {
+      out.push({
+        id: `draft-${d.rowId}`, depth: 0, guides: [], isLast: true, trackId, trackName,
+        levelKey: "Главная цель", levelExtra: "", title: text, start: todayISO(), end: todayISO(), tracked: false, draft: true,
+      });
+      return;
+    }
+    if (d.levelKey === "initiative" && d.path.outcomeId === "__new__") {
+      const idx = out.findIndex((r) => r.id === `uo-${d.path.uoId}`);
+      const depth = idx >= 0 ? out[idx].depth + 1 : 1;
+      out.splice(idx >= 0 ? idx + 1 : out.length, 0, {
+        id: `draft-${d.rowId}`, depth, guides: idx >= 0 ? [...out[idx].guides, false] : [], isLast: true, trackId, trackName,
+        levelKey: "KR Outcome", levelExtra: "", title: text, start: todayISO(), end: todayISO(), tracked: false, draft: true,
+      });
+      return;
+    }
+    const idFn = IMPORT_EDIT_ROW_ID[d.levelKey];
+    const targetId = idFn && idFn(d.path);
+    const idx = targetId ? out.findIndex((r) => r.id === targetId) : -1;
+    if (idx === -1) return;
+    out[idx] = { ...out[idx], draftEdit: true, draftText: text };
+  });
+  return out;
+}
+
 function buildFullGanttRows(trackId, trackName, data, maxDepth) {
   const rows = [];
   const trackStart = data.startDate || todayISO();
@@ -4767,6 +4887,7 @@ const GANTT_DEPTH_LEVELS = [
 function GanttChart() {
   const t = useT();
   const [tracksData, loaded] = useAllTracksData();
+  const [drafts, draftsLoaded] = useBitrixDraftRows();
   const [trackFilter, setTrackFilter] = useState("");
   const [maxDepth, setMaxDepth] = useState(6);
 
@@ -4776,7 +4897,8 @@ function GanttChart() {
 
   let rows = [];
   TRACKS.forEach((tr) => {
-    const trackRows = buildFullGanttRows(tr.id, tr.name, tracksData[tr.id], maxDepth);
+    let trackRows = buildFullGanttRows(tr.id, tr.name, tracksData[tr.id], maxDepth);
+    if (draftsLoaded) trackRows = injectDraftRows(trackRows, drafts, tr.id, tr.name);
     if (trackRows.length > 0 && !trackFilter) {
       rows.push({ id: `header-${tr.id}`, isTrackHeader: true, trackId: tr.id, trackName: tr.name });
     }
@@ -4901,7 +5023,7 @@ function GanttChart() {
             const barRight = clamp01to100((daysBetweenISO(rangeStart, r.end) / totalDays) * 100);
             const daysLeft = daysBetweenISO(todayISO(), r.end);
             const barColor = r.tracked ? deadlineUrgency(daysLeft).color : "#c4c4c4";
-            const tone = GANTT_DEPTH_TONE[r.depth] || TONES.task;
+            const tone = r.draft ? { bg: "#FFFBEB", border: "#D97706", text: "#9A3412" } : (GANTT_DEPTH_TONE[r.depth] || TONES.task);
             return (
               <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50">
                 <TreeGutter depth={r.depth} guides={r.guides} isLast={r.isLast} />
@@ -4909,12 +5031,18 @@ function GanttChart() {
                   style={{
                     width: 270 - r.depth * GANTT_GUIDE_STEP,
                     borderLeftColor: tone.border,
+                    borderLeftStyle: r.draft ? "dashed" : "solid",
                     background: tone.bg,
                     color: tone.text,
                   }}
                   className="shrink-0 pr-2 pl-1.5 py-[5px] min-w-0 border-l-4"
                 >
                   <div className="t10 flex items-center gap-1 opacity-80">
+                    {r.draft && (
+                      <span className="text-[9px] font-medium px-1 rounded shrink-0" style={{ background: "#FED7AA", color: "#9A3412" }}>
+                        {t("черновик")}
+                      </span>
+                    )}
                     {r.depth === 0 && (
                       <span
                         className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -4926,6 +5054,12 @@ function GanttChart() {
                   {r.title && (
                     <div className="text-xs truncate" title={r.title}>
                       <TranslatedText text={r.title} />
+                    </div>
+                  )}
+                  {r.draftEdit && (
+                    <div className="text-xs truncate mt-0.5 flex items-center gap-1" style={{ color: "#9A3412" }} title={r.draftText}>
+                      <span className="text-[9px] font-medium px-1 rounded shrink-0" style={{ background: "#FED7AA" }}>{t("черновик")}</span>
+                      <span className="truncate">{r.draftText}</span>
                     </div>
                   )}
                 </div>
@@ -5539,6 +5673,549 @@ const SUPABASE_ANON_KEY = "sb_publishable_t94mAXN3a3ql6fGuoIf8Lg_HMrcSGiy";
 const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const ROLE_SESSION_KEY = "okr-role-session";
 
+// ---- Bitrix24 import: parsing + hierarchy targeting ----
+// Bitrix's "export to Excel" is actually an HTML table saved with an .xls extension —
+// this reads it with the browser's own HTML parser rather than treating it as a real xlsx.
+function parseBitrixExport(text) {
+  const doc = new DOMParser().parseFromString(text, "text/html");
+  const table = doc.querySelector("table");
+  if (!table) return [];
+  const rows = [...table.querySelectorAll("tr")];
+  if (rows.length === 0) return [];
+  const header = [...rows[0].querySelectorAll("td,th")].map((c) => c.textContent.trim().toLowerCase());
+  const idx = {
+    name: header.findIndex((h) => h.includes("назв")),
+    deadline: header.findIndex((h) => h.includes("срок") || h.includes("дедлайн")),
+    tags: header.findIndex((h) => h.includes("тег")),
+  };
+  const out = [];
+  rows.slice(1).forEach((r, i) => {
+    const cells = [...r.querySelectorAll("td")].map((c) => c.textContent.trim());
+    if (cells.length === 0) return;
+    const rawText = idx.name >= 0 ? cells[idx.name] : cells[0];
+    if (!rawText) return;
+    const deadline = idx.deadline >= 0 ? cells[idx.deadline] : "";
+    const tagsCell = idx.tags >= 0 ? cells[idx.tags] : "";
+    const tags = tagsCell.split(",").map((s) => s.replace(/^#/, "").trim()).filter(Boolean);
+    out.push({ rowId: `bx_${i}_${newId()}`, rawText, deadline, tags });
+  });
+  return out;
+}
+
+const TAG_TRACK_ALIASES = {
+  "health-os": "health-os", "healthos": "health-os", "health_os": "health-os",
+  "growth-model": "growth-model", "growthmodel": "growth-model", "growth_model": "growth-model",
+  "prime-growth": "prime-growth", "primegrowth": "prime-growth", "prime_growth": "prime-growth",
+  "coral-evo": "coral-evo", "coralevo": "coral-evo", "coral_evo": "coral-evo", "coralevolution": "coral-evo",
+  "it-model": "it-model", "itmodel": "it-model", "it_model": "it-model",
+};
+function guessTrackFromTags(tags) {
+  for (const raw of tags) {
+    const norm = raw.toLowerCase().replace(/[\s_-]+/g, "-");
+    if (TAG_TRACK_ALIASES[norm]) return TAG_TRACK_ALIASES[norm];
+    const squashed = raw.toLowerCase().replace(/[^a-zа-я0-9]/g, "");
+    if (TAG_TRACK_ALIASES[squashed]) return TAG_TRACK_ALIASES[squashed];
+  }
+  return "";
+}
+
+// Depth = how many cascading pickers (UO → KR Outcome → KR Output → Волна → Квартал → Месяц)
+// are needed to pin down where this level lives in the tree.
+const IMPORT_LEVELS = [
+  { key: "mission", label: "Главная цель", depth: 1 },
+  { key: "initiative", label: "Стратегическая инициатива", depth: 2 },
+  { key: "wave", label: "Objective волны (6 мес.)", depth: 4 },
+  { key: "quarterInitiative", label: "Инициатива квартала (3 мес.)", depth: 5 },
+  { key: "month", label: "KR месяца", depth: 6 },
+  { key: "task", label: "Задача", depth: 6 },
+];
+function guessImportLevel(rawText) {
+  const s = rawText.toLowerCase();
+  if (s.includes("ultimate objective") || s.includes("стратегическая цель трека")) return "mission";
+  if (s.includes("ultimate initiative") || s.includes("стратегическая инициатива")) return "initiative";
+  if (s.includes("project-initiative") || s.includes("project- initiative") || s.includes("6 мес")) return "wave";
+  if (s.includes("objective на 3 мес") || s.includes("объектив квартала")) return "quarterInitiative";
+  if (s.includes("стратегическая миссия трека")) return "skip";
+  return "task";
+}
+
+// ---- Conflict handling: never silently overwrite existing content. If the target already
+// has something different, the import text is appended (not replacing it) with a clear
+// marker, so both versions stay visible everywhere that field renders — track editor,
+// combined tree, Gantt — until a human compares them and deletes the one that's redundant.
+const IMPORT_FIELD_CONFLICT_MARKER = "\n\n⚠ ИЗ BITRIX — сравните и уберите лишнее:\n";
+const IMPORT_TASK_DUPLICATE_PREFIX = "⚠ Возможный дубль — сравните: ";
+
+function normText(s) {
+  return (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+// For field-level levels (mission/initiative/wave/quarterInitiative/month): is there already
+// different, non-empty content sitting at this exact target?
+function detectFieldConflict(trackData, levelKey, path) {
+  if (levelKey === "task") return null;
+  const uo = trackData.ultimateObjectives.find((u) => u.id === path.uoId);
+  if (levelKey === "mission") return uo && uo.text ? uo.text : null;
+  if (path.uoId === "__new__" || !uo) return null;
+  const outcome = uo.krOutcomes.find((o) => o.id === path.outcomeId);
+  if (levelKey === "initiative") return outcome && outcome.initiativeText ? outcome.initiativeText : null;
+  if (path.outcomeId === "__new__" || !outcome) return null;
+  const output = outcome.krOutputs.find((k) => k.id === path.outputId);
+  const wave = output && output.waves.find((w) => w.id === path.waveId);
+  if (levelKey === "wave") return wave && wave.objective6mo ? wave.objective6mo : null;
+  if (!wave) return null;
+  const quarter = wave.quarters.find((q) => q.id === path.quarterId);
+  if (levelKey === "quarterInitiative") return quarter && quarter.initiative3mo ? quarter.initiative3mo : null;
+  if (!quarter) return null;
+  const month = quarter.monthlyKRs.find((m) => m.id === path.monthId);
+  if (levelKey === "month") return month && month.text ? month.text : null;
+  return null;
+}
+// For "task": is there already a task with the same (normalized) text in the target month?
+function detectTaskDuplicate(trackData, path, text) {
+  const uo = trackData.ultimateObjectives.find((u) => u.id === path.uoId);
+  const outcome = uo && uo.krOutcomes.find((o) => o.id === path.outcomeId);
+  const output = outcome && outcome.krOutputs.find((k) => k.id === path.outputId);
+  const wave = output && output.waves.find((w) => w.id === path.waveId);
+  const quarter = wave && wave.quarters.find((q) => q.id === path.quarterId);
+  const month = quarter && quarter.monthlyKRs.find((m) => m.id === path.monthId);
+  if (!month) return false;
+  const n = normText(text);
+  return month.tasks.some((tk) => normText(tk.text) === n && n !== "");
+}
+
+function emptyTargetPath() {
+  return { uoId: "", outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" };
+}
+function pathIsComplete(levelKey, path) {
+  const level = IMPORT_LEVELS.find((l) => l.key === levelKey);
+  const depth = level ? level.depth : 6;
+  if (depth >= 1 && !path.uoId) return false;
+  if (depth >= 2 && !path.outcomeId) return false;
+  if (depth >= 4 && !path.outputId) return false;
+  if (depth >= 4 && !path.waveId) return false;
+  if (depth >= 5 && !path.quarterId) return false;
+  if (depth >= 6 && !path.monthId) return false;
+  return true;
+}
+// Writes one reviewed Bitrix row into a (cloned) track's data tree. Returns null if the
+// chosen placement no longer resolves (e.g. hit a cap) so the caller can skip it safely.
+function applyImportRow(trackData, levelKey, path, text) {
+  const data = JSON.parse(JSON.stringify(trackData));
+  let uo;
+  if (path.uoId === "__new__") {
+    if (data.ultimateObjectives.length >= MAX_ULTIMATE_OBJECTIVES) return null;
+    uo = createUltimateObjective(data.ultimateObjectives.length + 1);
+    data.ultimateObjectives.push(uo);
+  } else {
+    uo = data.ultimateObjectives.find((u) => u.id === path.uoId);
+  }
+  if (!uo) return null;
+  if (levelKey === "mission") {
+    uo.text = uo.text && uo.text.trim() && uo.text.trim() !== text.trim() ? uo.text + IMPORT_FIELD_CONFLICT_MARKER + text : text;
+    return data;
+  }
+
+  let outcome;
+  if (path.outcomeId === "__new__") {
+    if (uo.krOutcomes.length >= MAX_KR_OUTCOMES) return null;
+    outcome = createKROutcome(uo.krOutcomes.length + 1);
+    uo.krOutcomes.push(outcome);
+  } else {
+    outcome = uo.krOutcomes.find((o) => o.id === path.outcomeId);
+  }
+  if (!outcome) return null;
+  if (levelKey === "initiative") {
+    outcome.initiativeText =
+      outcome.initiativeText && outcome.initiativeText.trim() && outcome.initiativeText.trim() !== text.trim()
+        ? outcome.initiativeText + IMPORT_FIELD_CONFLICT_MARKER + text
+        : text;
+    return data;
+  }
+
+  const output = outcome.krOutputs.find((k) => k.id === path.outputId);
+  if (!output) return null;
+  const wave = output.waves.find((w) => w.id === path.waveId);
+  if (!wave) return null;
+  if (levelKey === "wave") {
+    wave.objective6mo =
+      wave.objective6mo && wave.objective6mo.trim() && wave.objective6mo.trim() !== text.trim()
+        ? wave.objective6mo + IMPORT_FIELD_CONFLICT_MARKER + text
+        : text;
+    return data;
+  }
+
+  const quarter = wave.quarters.find((q) => q.id === path.quarterId);
+  if (!quarter) return null;
+  if (levelKey === "quarterInitiative") {
+    quarter.initiative3mo =
+      quarter.initiative3mo && quarter.initiative3mo.trim() && quarter.initiative3mo.trim() !== text.trim()
+        ? quarter.initiative3mo + IMPORT_FIELD_CONFLICT_MARKER + text
+        : text;
+    return data;
+  }
+
+  const month = quarter.monthlyKRs.find((m) => m.id === path.monthId);
+  if (!month) return null;
+  if (levelKey === "month") {
+    month.text =
+      month.text && month.text.trim() && month.text.trim() !== text.trim()
+        ? month.text + IMPORT_FIELD_CONFLICT_MARKER + text
+        : text;
+    return data;
+  }
+  if (levelKey === "task") {
+    if (month.tasks.length >= MAX_TASKS) return null;
+    const isDup = detectTaskDuplicate(data, path, text);
+    month.tasks.push({ id: newId(), text: isDup ? IMPORT_TASK_DUPLICATE_PREFIX + text : text, ownerId: "" });
+    return data;
+  }
+  return null;
+}
+
+function TargetPicker({ trackData, levelKey, path, onChange }) {
+  const t = useT();
+  const level = IMPORT_LEVELS.find((l) => l.key === levelKey);
+  const depth = level ? level.depth : 6;
+  const uo = trackData.ultimateObjectives.find((u) => u.id === path.uoId);
+  const outcome = uo && uo.krOutcomes.find((o) => o.id === path.outcomeId);
+  const output = outcome && outcome.krOutputs.find((k) => k.id === path.outputId);
+  const wave = output && output.waves.find((w) => w.id === path.waveId);
+  const quarter = wave && wave.quarters.find((q) => q.id === path.quarterId);
+  const set = (patch) => onChange({ ...path, ...patch });
+  const selCls = "text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white";
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      <select
+        value={path.uoId} className={selCls}
+        onChange={(e) => set({ uoId: e.target.value, outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" })}
+      >
+        <option value="">{t("Главная цель…")}</option>
+        {trackData.ultimateObjectives.map((u) => (
+          <option key={u.id} value={u.id}>{u.label}{u.text ? " — " + truncate(u.text, 30) : ""}</option>
+        ))}
+        {trackData.ultimateObjectives.length < MAX_ULTIMATE_OBJECTIVES && <option value="__new__">+ {t("новая Главная цель")}</option>}
+      </select>
+
+      {depth >= 2 && path.uoId && path.uoId !== "__new__" && (
+        <select
+          value={path.outcomeId} className={selCls}
+          onChange={(e) => set({ outcomeId: e.target.value, outputId: "", waveId: "", quarterId: "", monthId: "" })}
+        >
+          <option value="">{t("KR Outcome…")}</option>
+          {uo && uo.krOutcomes.map((o) => <option key={o.id} value={o.id}>{o.label}{o.text ? " — " + truncate(o.text, 30) : ""}</option>)}
+          {uo && uo.krOutcomes.length < MAX_KR_OUTCOMES && <option value="__new__">+ {t("новый KR Outcome")}</option>}
+        </select>
+      )}
+      {depth >= 2 && path.uoId === "__new__" && (
+        <span className="t11 text-neutral-400 self-center">{t("KR Outcome появится после создания цели")}</span>
+      )}
+
+      {depth >= 4 && path.outcomeId && path.outcomeId !== "__new__" && (
+        <select value={path.outputId} className={selCls} onChange={(e) => set({ outputId: e.target.value, waveId: "", quarterId: "", monthId: "" })}>
+          <option value="">{t("KR Output…")}</option>
+          {outcome && outcome.krOutputs.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+        </select>
+      )}
+
+      {depth >= 4 && path.outputId && (
+        <select value={path.waveId} className={selCls} onChange={(e) => set({ waveId: e.target.value, quarterId: "", monthId: "" })}>
+          <option value="">{t("Волна…")}</option>
+          {output && output.waves.map((w, i) => <option key={w.id} value={w.id}>{t("Волна")} {i + 1}</option>)}
+        </select>
+      )}
+
+      {depth >= 5 && path.waveId && (
+        <select value={path.quarterId} className={selCls} onChange={(e) => set({ quarterId: e.target.value, monthId: "" })}>
+          <option value="">{t("Квартал…")}</option>
+          {wave && wave.quarters.map((q) => <option key={q.id} value={q.id}>{t("Квартал")} {q.label}</option>)}
+        </select>
+      )}
+
+      {depth >= 6 && path.quarterId && (
+        <select value={path.monthId} className={selCls} onChange={(e) => set({ monthId: e.target.value })}>
+          <option value="">{t("Месяц…")}</option>
+          {quarter && quarter.monthlyKRs.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
+function BitrixImportModule() {
+  const t = useT();
+  const fileInputRef = useRef(null);
+  const [rows, setRows] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [tracksCache, setTracksCache] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-bitrix-import:draft", false);
+        const draft = res ? JSON.parse(res.value) : [];
+        setRows(Array.isArray(draft) ? draft : []);
+      } catch { setRows([]); }
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const h = setTimeout(() => {
+      window.storage.set("okr-bitrix-import:draft", JSON.stringify(rows), false).catch(() => {});
+    }, 600);
+    return () => clearTimeout(h);
+  }, [rows, loaded]);
+
+  useEffect(() => {
+    const missing = [...new Set(rows.map((r) => r.trackId).filter(Boolean))].filter((tid) => !tracksCache[tid]);
+    if (missing.length === 0) return;
+    (async () => {
+      const updates = {};
+      for (const tid of missing) {
+        try {
+          const res = await window.storage.get(`okr-track:${tid}`, false);
+          updates[tid] = res ? migrateTrackData(JSON.parse(res.value)) : createTrackData();
+        } catch {
+          updates[tid] = createTrackData();
+        }
+      }
+      setTracksCache((c) => ({ ...c, ...updates }));
+    })();
+  }, [rows, tracksCache]);
+
+  const handleFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true); setMessage("");
+    try {
+      const text = await file.text();
+      const parsed = parseBitrixExport(text);
+      if (parsed.length === 0) throw new Error(t("не нашёл таблицу с колонкой «Название» в файле"));
+      const newRows = parsed.map((p) => {
+        const trackId = guessTrackFromTags(p.tags);
+        const guess = guessImportLevel(p.rawText);
+        return {
+          rowId: p.rowId, rawText: p.rawText, editedText: p.rawText, deadline: p.deadline,
+          trackId, levelKey: guess === "skip" ? "task" : guess,
+          include: guess !== "skip",
+          path: emptyTargetPath(),
+          forceApply: false,
+        };
+      });
+      setRows(newRows);
+      setMessage(t("Загружено строк: ") + newRows.length);
+    } catch (err) {
+      setMessage(t("Не удалось прочитать файл: ") + err.message);
+    }
+    setBusy(false);
+  };
+
+  const updateRow = (rowId, patch) => setRows((rs) => rs.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
+  const removeRow = (rowId) => setRows((rs) => rs.filter((r) => r.rowId !== rowId));
+  const acceptAll = () => setRows((rs) => rs.map((r) => ({ ...r, include: true })));
+
+  // A row counts as "conflicting" the same way the Gantt preview and the warning badge below
+  // decide it — if it doesn't conflict, or the person explicitly forced it, it's eligible for
+  // the bulk apply. Conflicting rows stay staged (visible in the Gantt as a draft) and sit out
+  // of "Применить отмеченное" until cleaned up or force-applied one at a time.
+  const rowConflict = (r) => {
+    const trackData = tracksCache[r.trackId];
+    if (!trackData || !pathIsComplete(r.levelKey, r.path)) return null;
+    if (r.levelKey === "task") return detectTaskDuplicate(trackData, r.path, r.editedText || r.rawText) ? "dup" : null;
+    return detectFieldConflict(trackData, r.levelKey, r.path);
+  };
+
+  const readyRows = rows.filter((r) => {
+    if (!r.include || !r.trackId || !pathIsComplete(r.levelKey, r.path)) return false;
+    const conflict = rowConflict(r);
+    return !conflict || r.forceApply;
+  });
+  const conflictRows = rows.filter((r) => {
+    if (!r.include || !r.trackId || !pathIsComplete(r.levelKey, r.path)) return false;
+    return !!rowConflict(r) && !r.forceApply;
+  });
+
+  const applyAll = async () => {
+    if (readyRows.length === 0) return;
+    setBusy(true); setMessage("");
+    try {
+      const byTrack = {};
+      const appliedIds = [];
+      readyRows.forEach((r) => {
+        const base = byTrack[r.trackId] || tracksCache[r.trackId];
+        if (!base) return;
+        const next = applyImportRow(base, r.levelKey, r.path, r.editedText || r.rawText);
+        if (next) { byTrack[r.trackId] = next; appliedIds.push(r.rowId); }
+      });
+      const trackIds = Object.keys(byTrack);
+      if (trackIds.length === 0) {
+        setMessage(t("Ничего не применено — проверьте лимиты (например, максимум Главных целей/KR Outcome/задач в месяце)."));
+        setBusy(false);
+        return;
+      }
+      await Promise.all(trackIds.map((tid) => window.storage.set(`okr-track:${tid}`, JSON.stringify(byTrack[tid]), false)));
+      const appliedSet = new Set(appliedIds);
+      setRows((rs) => rs.filter((r) => !appliedSet.has(r.rowId)));
+      setTracksCache((c) => ({ ...c, ...byTrack }));
+      setMessage(t("Применено: ") + appliedIds.length + (conflictRows.length ? " · " + t("конфликтных строк оставлено на доработку: ") + conflictRows.length : ""));
+    } catch (err) {
+      setMessage(t("Ошибка применения: ") + err.message);
+    }
+    setBusy(false);
+  };
+
+  if (!loaded) return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="border border-neutral-200 rounded-xl p-3 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="text-sm font-medium text-neutral-800">{t("Импорт задач из Bitrix24")}</div>
+          <div className="text-xs text-neutral-400 mt-0.5">
+            {t("Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги».")}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            disabled={busy}
+            className="flex items-center gap-1.5 text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50 disabled:opacity-50"
+          >
+            <FileUp size={13} /> {t("Загрузить файл Bitrix")}
+          </button>
+          <input ref={fileInputRef} type="file" accept=".xls,.xlsx,.html,.htm" className="hidden" onChange={handleFile} />
+        </div>
+      </div>
+      {message && <div className="text-xs text-neutral-500">{message}</div>}
+
+      {rows.length === 0 ? (
+        <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
+          {t("Загрузите файл выгрузки задач из Bitrix24, чтобы начать проверку.")}
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between t11 text-neutral-400 flex-wrap gap-2">
+            <span>
+              {t("Готовы к применению:")} {readyRows.length}
+              {conflictRows.length > 0 && <> · <span className="text-orange-600">{t("на конфликте (остаются черновиком в Ганте):")} {conflictRows.length}</span></>}
+              {" "}{t("из")} {rows.length}
+            </span>
+            <div className="flex gap-1.5">
+              <button onClick={acceptAll} className="text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50">
+                {t("Принять все")}
+              </button>
+              <button
+                onClick={applyAll} disabled={busy || readyRows.length === 0}
+                className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-40"
+              >
+                <CheckCircle2 size={13} /> {t("Применить отмеченное")}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {rows.map((r) => {
+              const trackData = tracksCache[r.trackId];
+              const complete = trackData && pathIsComplete(r.levelKey, r.path);
+              const fieldConflict = complete && r.levelKey !== "task" ? detectFieldConflict(trackData, r.levelKey, r.path) : null;
+              const taskDup = complete && r.levelKey === "task" ? detectTaskDuplicate(trackData, r.path, r.editedText || r.rawText) : false;
+              const hasConflict = !!fieldConflict || taskDup;
+              const willApply = complete && (!hasConflict || r.forceApply);
+              return (
+                <div key={r.rowId} className={`rounded-xl border p-3 ${!complete ? "border-amber-200" : hasConflict && !r.forceApply ? "border-orange-300" : "border-neutral-200"}`}>
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="checkbox" checked={r.include} className="mt-1"
+                      onChange={(e) => updateRow(r.rowId, { include: e.target.checked })}
+                    />
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <select
+                          value={r.trackId}
+                          onChange={(e) => updateRow(r.rowId, { trackId: e.target.value, path: emptyTargetPath(), forceApply: false })}
+                          className="t11 font-medium rounded px-1.5 py-0.5 border"
+                          style={
+                            r.trackId
+                              ? { background: TRACK_COLORS[r.trackId], borderColor: TRACK_COLORS[r.trackId], color: "#fff" }
+                              : { borderColor: "#e5e5e5", color: "#a3a3a3" }
+                          }
+                        >
+                          <option value="">{t("Трек…")}</option>
+                          {TRACKS.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
+                        </select>
+                        {r.deadline && <span className="t11 text-neutral-400">{t("срок")} {r.deadline}</span>}
+                        {!complete && (
+                          <span className="t11 text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                            {t("не размещено")}
+                          </span>
+                        )}
+                        {complete && hasConflict && !r.forceApply && (
+                          <span className="t11 text-orange-700 bg-orange-50 border border-orange-200 rounded px-1.5 py-0.5">
+                            ⚠ {t("конфликт — сначала виден только в Ганте")}
+                          </span>
+                        )}
+                        {complete && hasConflict && r.forceApply && (
+                          <span className="t11 text-neutral-500 bg-neutral-100 border border-neutral-200 rounded px-1.5 py-0.5">
+                            {t("будет объединено рядом с существующим при применении")}
+                          </span>
+                        )}
+                        <button onClick={() => removeRow(r.rowId)} className="ml-auto text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                      <Field small value={r.editedText} onChange={(v) => updateRow(r.rowId, { editedText: v })} placeholder={t("Текст")} />
+                      {fieldConflict && (
+                        <div className="t11 text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
+                          <span>{t("Сейчас там:")} «<Truncated text={fieldConflict} limit={90} />»</span>
+                          {!r.forceApply && (
+                            <button onClick={() => updateRow(r.rowId, { forceApply: true })} className="shrink-0 text-orange-800 underline">
+                              {t("применить всё равно (дописать рядом)")}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {taskDup && !fieldConflict && (
+                        <div className="t11 text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
+                          <span>{t("Похожая задача уже есть в этом месяце")}</span>
+                          {!r.forceApply && (
+                            <button onClick={() => updateRow(r.rowId, { forceApply: true })} className="shrink-0 text-orange-800 underline">
+                              {t("применить всё равно (добавить рядом)")}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <select
+                          value={r.levelKey} className="text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white"
+                          onChange={(e) => updateRow(r.rowId, { levelKey: e.target.value, path: emptyTargetPath(), forceApply: false })}
+                        >
+                          {IMPORT_LEVELS.map((l) => <option key={l.key} value={l.key}>{t(l.label)}</option>)}
+                        </select>
+                        {r.trackId && trackData && (
+                          <TargetPicker
+                            trackData={trackData} levelKey={r.levelKey} path={r.path}
+                            onChange={(p) => updateRow(r.rowId, { path: p, forceApply: false })}
+                          />
+                        )}
+                        {r.trackId && !trackData && <span className="t11 text-neutral-400">{t("Загрузка трека…")}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const MODULES = [
   { key: "tracks_all", label: "Треки (все)" },
   { key: "track_health-os", label: "Трек Health OS" },
@@ -5553,6 +6230,7 @@ const MODULES = [
   { key: "tracking_dashboard", label: "Дашборд трекинга" },
   { key: "gantt", label: "Гант" },
   { key: "directory", label: "Справочник" },
+  { key: "bitrix_import", label: "Импорт из Bitrix24" },
   { key: "privileges", label: "Управление привилегиями" },
 ];
 
@@ -5561,6 +6239,7 @@ function moduleKeyForDataKey(key) {
   if (key === "okr-projects" || key === "okr-project-statuses") return "projects";
   if (key === "okr-directory") return "directory";
   if (key === "okr-links") return "combined_tree_links";
+  if (key.startsWith("okr-bitrix-import")) return "bitrix_import";
   return "privileges";
 }
 function effectivePermission(permissions, moduleKey) {
@@ -6046,6 +6725,16 @@ export default function App() {
               <CalendarRange size={13} /> {t("Гант")}
             </button>
           )}
+          {authCtxValue.canView("bitrix_import") && (
+            <button
+              onClick={() => setTrackId("bitrix-import")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "bitrix-import" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <FileUp size={13} /> {t("Импорт из Bitrix24")}
+            </button>
+          )}
           {authCtxValue.canView("privileges") && (
             <button
               onClick={() => setTrackId("privileges")}
@@ -6072,6 +6761,10 @@ export default function App() {
             <TrackingDashboard key={`dashboard-${refreshKey}`} />
           ) : trackId === "gantt" && authCtxValue.canView("gantt") ? (
             <GanttChart key={`gantt-${refreshKey}`} />
+          ) : trackId === "bitrix-import" && authCtxValue.canView("bitrix_import") ? (
+            <LockOverlay locked={!authCtxValue.canEdit("bitrix_import")} reason={t("Импорт доступен администратору")}>
+              <BitrixImportModule key={`bitrix-import-${refreshKey}`} />
+            </LockOverlay>
           ) : trackId === "privileges" && authCtxValue.canView("privileges") ? (
             <PrivilegesManager key={`privileges-${refreshKey}`} auth={roleAuth} />
           ) : TRACKS.some((tr) => tr.id === trackId) && authCtxValue.canView(`track_${trackId}`) ? (
