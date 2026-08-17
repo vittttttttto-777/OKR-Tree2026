@@ -2779,14 +2779,11 @@ function ObjectiveField({ label, labelColor, textPath, ownerPath, text, ownerId,
 
 function Collapsible({ title, subtitle, icon, tone, accentColor, defaultOpen = true, right, children }) {
   const [open, setOpen] = useState(defaultOpen);
-  const outerStyle = accentColor ? { borderColor: accentColor } : undefined;
-  const headerStyle = accentColor ? { background: accentColor + "10", color: accentColor } : undefined;
+  const outerStyle = accentColor ? { borderColor: accentColor } : { borderColor: tone.border, borderStyle: tone.dashed ? "dashed" : "solid" };
+  const headerStyle = accentColor ? { background: accentColor + "10", color: accentColor } : { background: tone.bg, color: tone.text };
   return (
-    <div className={`rounded-xl border overflow-hidden bg-white ${accentColor ? "" : tone.border}`} style={outerStyle}>
-      <div
-        className={`flex items-start gap-2 px-3 py-2 min-w-0 ${accentColor ? "" : `${tone.bg} ${tone.label}`}`}
-        style={headerStyle}
-      >
+    <div className="rounded-xl border overflow-hidden bg-white" style={outerStyle}>
+      <div className="flex items-start gap-2 px-3 py-2 min-w-0" style={headerStyle}>
         <button onClick={() => setOpen((o) => !o)} className="flex items-start gap-2 flex-1 min-w-0 text-left">
           {open ? <ChevronDown size={15} className="shrink-0 mt-0.5" /> : <ChevronRight size={15} className="shrink-0 mt-0.5" />}
           <span className="shrink-0 mt-0.5">{icon}</span>
@@ -2812,17 +2809,18 @@ const TRACK_TONE_TEXT = {
 // and each level keeps ONE color everywhere it appears — track editor cards, combined tree,
 // and the Gantt. Collapsible only paints the header strip with this — card body stays plain
 // white so nested fields underneath stay fully readable regardless of how bold the tone is.
+// Exact hex values (not Tailwind steps) so this matches the reference the team already knows.
 const TONES = {
-  mission: { bg: "bg-emerald-900", border: "border-emerald-900", label: "text-white" },
-  outcome: { bg: "bg-pink-200", border: "border-pink-300", label: "text-neutral-800" },
-  initiative: { bg: "bg-emerald-900", border: "border-emerald-900", label: "text-white" },
-  output: { bg: "bg-neutral-100", border: "border-neutral-300", label: "text-neutral-800" },
-  wave: { bg: "bg-blue-900", border: "border-blue-900", label: "text-white" },
-  waveTarget: { bg: "bg-neutral-50", border: "border-neutral-200 border-dashed", label: "text-neutral-500" },
-  quarter: { bg: "bg-neutral-100", border: "border-neutral-300", label: "text-neutral-800" },
-  month: { bg: "bg-green-600", border: "border-green-600", label: "text-white" },
-  task: { bg: "bg-amber-100", border: "border-amber-200", label: "text-neutral-800" },
-  project: { bg: "bg-indigo-50", border: "border-indigo-200", label: "text-indigo-800" },
+  mission: { bg: "#375623", border: "#375623", text: "#FFFFFF" },
+  outcome: { bg: "#F4B6B6", border: "#F4B6B6", text: "#262626" },
+  initiative: { bg: "#375623", border: "#375623", text: "#FFFFFF" },
+  output: { bg: "#E7E6E6", border: "#E7E6E6", text: "#262626" },
+  wave: { bg: "#1F3864", border: "#1F3864", text: "#FFFFFF" },
+  waveTarget: { bg: "#FAFAFA", border: "#E5E5E5", text: "#737373", dashed: true },
+  quarter: { bg: "#E7E6E6", border: "#E7E6E6", text: "#262626" },
+  month: { bg: "#70AD47", border: "#70AD47", text: "#FFFFFF" },
+  task: { bg: "#FFF2CC", border: "#FDE68A", text: "#262626" },
+  project: { bg: "#EEF2FF", border: "#C7D2FE", text: "#3730A3" },
 };
 
 // Same tones as the track editor, indexed by Gantt row depth (0=Главная цель … 6=Задача) —
@@ -3234,7 +3232,7 @@ function TrackEditor({ trackId }) {
           <Collapsible
             key={uo.id}
             title={`${t("Главная цель")} ${ui + 1} ${t("из")} ${data.ultimateObjectives.length}`}
-            icon={<Flag size={14} />} tone={TONES.mission} accentColor={trackColor}
+            icon={<Flag size={14} />} tone={TONES.mission}
             right={
               data.ultimateObjectives.length > 1 && (
                 <button onClick={() => removeUltimateObjective(uo.id)} className="text-neutral-300 hover:text-red-500 p-1">
@@ -3343,8 +3341,8 @@ function CombinedQuarter({ quarter, trackId, trackName }) {
   if (!quarterHasContent(quarter)) return null;
   const months = quarter.monthlyKRs.filter(monthHasContent);
   return (
-    <div className={`rounded-lg border ${TONES.quarter.border} ${TONES.quarter.bg} p-2 space-y-1.5 min-w-0`}>
-      <div className={`t11 font-semibold uppercase tracking-wide flex items-center gap-1 ${TONES.quarter.label}`}>
+    <div className="rounded-lg border p-2 space-y-1.5 min-w-0" style={{ borderColor: TONES.quarter.border, background: TONES.quarter.bg }}>
+      <div className="t11 font-semibold uppercase tracking-wide flex items-center gap-1" style={{ color: TONES.quarter.text }}>
         <CalendarRange size={11} className="shrink-0" /> {t("Квартал")} {quarter.label}
       </div>
       {quarter.milestone && (
@@ -3388,7 +3386,7 @@ function CombinedOutput({ output, trackId, trackName }) {
   const waves = output.waves.filter(waveHasContent);
   return (
     <Linkable link={{ trackId, trackName, itemId: output.id, itemLabel: `${output.label} — ${truncate(output.text)}` }}>
-      <div className={`rounded-lg border ${TONES.output.border} ${TONES.output.bg} p-2.5 space-y-2`}>
+      <div className="rounded-lg border p-2.5 space-y-2" style={{ borderColor: TONES.output.border, background: TONES.output.bg }}>
         {output.text && <div className="text-sm text-neutral-800"><Truncated text={outputText} /></div>}
         {waves.length > 0 ? (
           <div className="space-y-1.5">
@@ -3413,9 +3411,12 @@ function CombinedOutputBranch({ outputs, trackId, trackName }) {
           <button
             key={o.id}
             onClick={() => setSelected(o.id)}
-            className={`t11 font-medium px-2 py-1 rounded-full border flex items-center gap-1 ${
-              o.id === active.id ? `${TONES.output.border} ${TONES.output.bg} ${TONES.output.label}` : "border-neutral-200 text-neutral-400 hover:border-neutral-300"
-            }`}
+            className="t11 font-medium px-2 py-1 rounded-full border flex items-center gap-1"
+            style={
+              o.id === active.id
+                ? { borderColor: TONES.output.border, background: TONES.output.bg, color: TONES.output.text }
+                : { borderColor: "#e5e5e5", color: "#a3a3a3" }
+            }
           >
             <Target size={10} className="shrink-0" /> {o.label}
           </button>
@@ -3470,12 +3471,26 @@ function MainGoalBlock({ uo, ui, trackId, trackName, color }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const outcomes = uo.krOutcomes.filter(outcomeHasContent);
+  const uoText = useDataT(uo.text);
+  const label = `${t("Главная цель")} ${ui + 1}`;
+  const body = (
+    <div>
+      <span
+        className="inline-block text-xs mb-0.5 px-1.5 py-0.5 rounded"
+        style={{ background: TONES.mission.bg, color: TONES.mission.text }}
+      >
+        {label} <Owner id={uo.owner} />
+      </span>
+      {uo.text && <div className="text-sm text-neutral-800 mt-0.5"><Truncated text={uoText} /></div>}
+    </div>
+  );
   return (
     <div className="rounded-lg bg-white border border-neutral-100 px-3 py-2 space-y-1.5" style={{ borderLeftWidth: 3, borderLeftColor: color }}>
-      <StaticRow
-        label={`${t("Главная цель")} ${ui + 1}`} labelColor="text-amber-700" text={uo.text} ownerId={uo.owner}
-        link={{ trackId, trackName, itemId: `ultimate-${uo.id}`, itemLabel: `Главная цель ${ui + 1} — ${truncate(uo.text)}` }}
-      />
+      {uo.text ? (
+        <Linkable link={{ trackId, trackName, itemId: `ultimate-${uo.id}`, itemLabel: `Главная цель ${ui + 1} — ${truncate(uo.text)}` }}>
+          {body}
+        </Linkable>
+      ) : body}
       {outcomes.length > 0 && (
         <>
           <button onClick={() => setOpen((o) => !o)} className="t11 text-amber-700 hover:text-amber-900 flex items-center gap-1 font-medium">
@@ -4844,7 +4859,11 @@ function GanttChart() {
         {["Главная цель", "KR Outcome", "KR Output", "Волна", "Квартал", "KR месяца", "Задача"].map((key, i) => {
           const tone = GANTT_DEPTH_TONE[i];
           return (
-            <span key={key} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${tone.bg} ${tone.border} ${tone.label}`}>
+            <span
+              key={key}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border"
+              style={{ background: tone.bg, borderColor: tone.border, color: tone.text }}
+            >
               {t(key)}
             </span>
           );
@@ -4887,8 +4906,13 @@ function GanttChart() {
               <div key={r.id} className="flex items-center px-2 hover:bg-neutral-50">
                 <TreeGutter depth={r.depth} guides={r.guides} isLast={r.isLast} />
                 <div
-                  style={{ width: 270 - r.depth * GANTT_GUIDE_STEP }}
-                  className={`shrink-0 pr-2 pl-1.5 py-[5px] min-w-0 border-l-4 ${tone.border} ${tone.bg} ${tone.label}`}
+                  style={{
+                    width: 270 - r.depth * GANTT_GUIDE_STEP,
+                    borderLeftColor: tone.border,
+                    background: tone.bg,
+                    color: tone.text,
+                  }}
+                  className="shrink-0 pr-2 pl-1.5 py-[5px] min-w-0 border-l-4"
                 >
                   <div className="t10 flex items-center gap-1 opacity-80">
                     {r.depth === 0 && (
