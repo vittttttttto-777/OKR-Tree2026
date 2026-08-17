@@ -2574,6 +2574,7 @@ function Field({ value, onChange, placeholder, multiline, small, frame }) {
       rows={2}
       value={value}
       placeholder={placeholder}
+      title={value || undefined}
       onChange={(e) => onChange(e.target.value)}
     />
   ) : (
@@ -2581,6 +2582,7 @@ function Field({ value, onChange, placeholder, multiline, small, frame }) {
       className={cls}
       value={value}
       placeholder={placeholder}
+      title={value || undefined}
       onChange={(e) => onChange(e.target.value)}
     />
   );
