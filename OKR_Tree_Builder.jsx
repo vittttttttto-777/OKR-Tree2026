@@ -2562,7 +2562,7 @@ function Linkable({ link, children }) {
 }
 
 
-function Field({ value, onChange, placeholder, multiline, small }) {
+function Field({ value, onChange, placeholder, multiline, small, frame }) {
   const lang = useLang();
   const preview = useDataT(value);
   const cls =
@@ -2585,7 +2585,7 @@ function Field({ value, onChange, placeholder, multiline, small }) {
     />
   );
   return (
-    <div>
+    <div className={frame ? `rounded-md border ${frame} px-1.5 py-0.5` : undefined}>
       {input}
       {showPreview && <div className="text-xs text-sky-600 italic mt-0.5">🌐 {preview}</div>}
     </div>
@@ -2869,7 +2869,7 @@ function OwnerPickerModal({ value, onChange, onClose, title }) {
   );
 }
 
-function OwnerBadge({ value, onChange, title }) {
+function OwnerIconButton({ value, onChange, title }) {
   const t = useT();
   const directory = useDirectoryList();
   const [open, setOpen] = useState(false);
@@ -2879,16 +2879,15 @@ function OwnerBadge({ value, onChange, title }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={t("Назначить ответственного")}
+        title={owner ? owner.name : t("Без ответственного")}
         className={
-          "shrink-0 flex items-center gap-1 rounded-md border px-1.5 py-0.5 t11 max-w-[6.5rem] " +
+          "shrink-0 flex items-center justify-center w-6 h-6 rounded-md border " +
           (owner
-            ? "border-neutral-200 bg-neutral-50 text-neutral-600"
-            : "border-dashed border-neutral-200 text-neutral-400 hover:text-neutral-600 hover:border-neutral-300")
+            ? "border-neutral-300 text-neutral-500 hover:bg-neutral-50"
+            : "border-red-300 text-red-400 hover:bg-red-50")
         }
       >
-        <User size={11} className="shrink-0" />
-        <span className="truncate">{owner ? owner.name : t("Без ответственного")}</span>
+        <User size={12} />
       </button>
       {open && (
         <OwnerPickerModal
@@ -2905,13 +2904,20 @@ function OwnerBadge({ value, onChange, title }) {
 function TaskRow({ path, task, idx, onRemove }) {
   const t = useT();
   const update = useUpdate();
+  const hasOwner = !!task.ownerId;
   return (
     <div className="flex items-center gap-1.5 pl-6 py-0.5">
       <Circle size={6} className="text-neutral-300 shrink-0" />
       <div className="flex-1 min-w-0">
-        <Field small value={task.text} placeholder={`${t("Задача")} ${idx + 1}`} onChange={(v) => update([...path, "text"], v)} />
+        <Field
+          small
+          value={task.text}
+          placeholder={`${t("Задача")} ${idx + 1}`}
+          onChange={(v) => update([...path, "text"], v)}
+          frame={hasOwner ? "border-neutral-300" : "border-red-300"}
+        />
       </div>
-      <OwnerBadge value={task.ownerId} onChange={(v) => update([...path, "ownerId"], v)} title={t("Ответственный за задачу")} />
+      <OwnerIconButton value={task.ownerId} onChange={(v) => update([...path, "ownerId"], v)} title={t("Ответственный за задачу")} />
       <button onClick={onRemove} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
         <Trash2 size={12} />
       </button>
