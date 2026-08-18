@@ -173,6 +173,15 @@ const EN_DICT = {
   "Совет: добавьте в выгрузку колонку с номером задачи Bitrix (ID / № заявки) — после того как вы один раз разместите задачу вручную, её номер сохранится, и при повторном импорте того же файла приложение само узнает эту задачу и не предложит разместить её ещё раз.":
     "Tip: include a column with the Bitrix task number (ID / task #) in the export — once you place a task by hand, its number is saved, and re-importing the same file later will recognize that task automatically instead of asking you to place it again.",
   "уже импортирована по ID": "already imported (matched by ID)",
+  "пусто": "empty",
+  "Выбрано": "Selected",
+  "Выбрать": "Select",
+  "Из Bitrix, задача №": "From Bitrix, task #",
+  "Очистить весь черновик импорта? Уже применённые данные это не затронет — очищаются только строки, которые ещё не подтверждены.":
+    "Clear the whole import draft? Already-applied data is not affected — only rows that haven't been confirmed yet are cleared.",
+  "Очистить черновик": "Clear draft",
+  "Убрать из черновика строки без галочки": "Remove unchecked rows from the draft",
+  "Убрать неотмеченные строки": "Remove unchecked rows",
   "Уже в дереве без изменений — можно пропустить.": "Already in the tree, unchanged — can be skipped.",
   "В дереве сейчас другой текст:": "The tree currently has different text:",
   "если в Bitrix задачу переименовали, отметьте чекбокс, чтобы дописать новый текст рядом.":
@@ -2971,6 +2980,14 @@ function TaskRow({ path, task, idx, onRemove }) {
       {isDup && (
         <span className="t10 shrink-0 px-1 rounded font-medium" style={{ background: "#FED7AA", color: "#9A3412" }} title={t("Возможный дубль — сравните с похожей задачей рядом и удалите лишнее")}>
           ⚠
+        </span>
+      )}
+      {task.bitrixId && (
+        <span
+          className="t10 shrink-0 px-1 rounded font-mono text-sky-700 bg-sky-50 border border-sky-200"
+          title={t("Из Bitrix, задача №") + " " + task.bitrixId}
+        >
+          №{task.bitrixId}
         </span>
       )}
       <div className="flex-1 min-w-0">
@@ -5917,74 +5934,142 @@ function applyImportRow(trackData, levelKey, path, text, bitrixTaskId) {
 // Flat, searchable list of every valid placement for a given level — each entry shows the
 // real breadcrumb (Главная цель › KR Outcome › … ) with the actual live text at each step,
 // so browsing feels like browsing the track itself, not guessing through blind dropdowns.
-function buildPlacementOptions(trackData, levelKey, t) {
-  const level = IMPORT_LEVELS.find((l) => l.key === levelKey);
-  const depth = level ? level.depth : 6;
-  const options = [];
-  trackData.ultimateObjectives.forEach((uo) => {
-    const uoLabel = `${uo.label}${uo.text ? " — " + truncate(uo.text, 40) : ""}`;
-    if (depth === 1) {
-      options.push({ crumb: uoLabel, path: { uoId: uo.id, outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" } });
-      return;
-    }
-    uo.krOutcomes.forEach((o) => {
-      const oLabel = `${uoLabel} › ${o.label}${o.text ? " — " + truncate(o.text, 40) : ""}`;
-      if (depth === 2) {
-        options.push({ crumb: oLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: "", waveId: "", quarterId: "", monthId: "" } });
-        return;
-      }
-      o.krOutputs.forEach((ko) => {
-        const koLabel = `${oLabel} › ${ko.label}`;
-        ko.waves.forEach((w, wi) => {
-          const wLabel = `${koLabel} › ${t("Волна")} ${wi + 1}${w.objective6mo ? " — " + truncate(w.objective6mo, 40) : ""}`;
-          if (depth === 4) {
-            options.push({ crumb: wLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: "", monthId: "" } });
-            return;
-          }
-          w.quarters.forEach((q) => {
-            const qLabel = `${wLabel} › ${t("Квартал")} ${q.label}${q.initiative3mo ? " — " + truncate(q.initiative3mo, 40) : ""}`;
-            if (depth === 5) {
-              options.push({ crumb: qLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: "" } });
-              return;
+// A real collapsible tree matching the track editor's own structure — each level colored the
+// same way it is in the editor/Gantt (TONES), only the level the target sits at gets a "Select"
+// button, everything else is just expand/collapse navigation. Replaces the earlier flat
+// breadcrumb list, which repeated the same long prefix on every row and was hard to scan.
+function TreeNode({ code, tone, title, subtitle, selectable, selected, onSelect, defaultOpen, children }) {
+  const t = useT();
+  const [open, setOpen] = useState(!!defaultOpen);
+  const hasChildren = !!children;
+  return (
+    <div className="border-l-2 pl-2" style={{ borderColor: tone.border }}>
+      <div className="flex items-center gap-1.5 py-1">
+        {hasChildren ? (
+          <button onClick={() => setOpen((o) => !o)} className="shrink-0 text-neutral-400 hover:text-neutral-700 p-0.5">
+            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          </button>
+        ) : (
+          <span className="w-[18px] shrink-0" />
+        )}
+        <span
+          className="shrink-0 w-2 h-2 rounded-full"
+          style={{ background: tone.border }}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-neutral-800 truncate" title={title}>{title || <span className="text-neutral-400">({t("пусто")})</span>}</div>
+          {subtitle && <div className="t10 text-neutral-400 truncate">{subtitle}</div>}
+        </div>
+        {selectable && (
+          <button
+            onClick={onSelect}
+            className={
+              "shrink-0 t11 rounded-md px-2 py-1 border font-medium " +
+              (selected ? "bg-neutral-900 text-white border-neutral-900" : "border-neutral-300 hover:bg-neutral-50")
             }
-            q.monthlyKRs.forEach((m) => {
-              const mLabel = `${qLabel} › ${m.label}${m.text ? " — " + truncate(m.text, 30) : ""}`;
-              options.push({ crumb: mLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: m.id } });
-            });
-          });
-        });
-      });
-    });
-  });
-  return options;
+          >
+            {selected ? t("Выбрано") : t("Выбрать")}
+          </button>
+        )}
+      </div>
+      {hasChildren && open && <div className="pl-1">{children}</div>}
+    </div>
+  );
 }
 
-function HierarchyBrowserModal({ trackData, levelKey, onPick, onClose }) {
+function HierarchyTree({ trackData, levelKey, path, onPick, matchQuery }) {
+  const t = useT();
+  const depth = (IMPORT_LEVELS.find((l) => l.key === levelKey) || {}).depth || 6;
+  const q = (matchQuery || "").trim().toLowerCase();
+  const hit = (s) => !q || (s || "").toLowerCase().includes(q);
+  const sel = (id, key) => path[key] === id;
+
+  return (
+    <>
+      {trackData.ultimateObjectives.map((uo) => {
+        const uoText = uo.text || "";
+        return (
+          <TreeNode
+            key={uo.id} tone={TONES.mission} title={`${uo.label}${uoText ? " — " + truncate(uoText, 60) : ""}`}
+            defaultOpen={!q || hit(uoText)}
+            selectable={depth === 1} selected={sel(uo.id, "uoId")}
+            onSelect={() => onPick({ uoId: uo.id, outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" })}
+          >
+            {depth >= 2 && uo.krOutcomes.map((o) => {
+              const oText = o.text || "";
+              return (
+                <TreeNode
+                  key={o.id} tone={TONES.outcome} title={`${o.label}${oText ? " — " + truncate(oText, 60) : ""}`}
+                  defaultOpen={!q || hit(oText)}
+                  selectable={depth === 2} selected={sel(o.id, "outcomeId")}
+                  onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: "", waveId: "", quarterId: "", monthId: "" })}
+                >
+                  {depth >= 4 && o.krOutputs.map((ko) => (
+                    <TreeNode key={ko.id} tone={TONES.output} title={ko.label} subtitle={ko.text ? truncate(ko.text, 60) : ""} defaultOpen={!q}>
+                      {ko.waves.map((w, wi) => {
+                        const wText = w.objective6mo || "";
+                        return (
+                          <TreeNode
+                            key={w.id} tone={TONES.wave} title={`${t("Волна")} ${wi + 1}`} subtitle={wText ? truncate(wText, 60) : ""}
+                            defaultOpen={!q || hit(wText)}
+                            selectable={depth === 4} selected={sel(w.id, "waveId")}
+                            onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: "", monthId: "" })}
+                          >
+                            {depth >= 5 && w.quarters.map((qt) => {
+                              const qText = qt.initiative3mo || qt.milestone || "";
+                              return (
+                                <TreeNode
+                                  key={qt.id} tone={TONES.quarter} title={`${t("Квартал")} ${qt.label}`} subtitle={qText ? truncate(qText, 60) : ""}
+                                  defaultOpen={!q || hit(qText)}
+                                  selectable={depth === 5} selected={sel(qt.id, "quarterId")}
+                                  onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: qt.id, monthId: "" })}
+                                >
+                                  {depth >= 6 && qt.monthlyKRs.map((m) => (
+                                    <TreeNode
+                                      key={m.id} tone={TONES.month} title={m.label} subtitle={m.text ? truncate(m.text, 60) : ""}
+                                      selectable={depth === 6} selected={sel(m.id, "monthId")}
+                                      onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: qt.id, monthId: m.id })}
+                                    />
+                                  ))}
+                                </TreeNode>
+                              );
+                            })}
+                          </TreeNode>
+                        );
+                      })}
+                    </TreeNode>
+                  ))}
+                </TreeNode>
+              );
+            })}
+          </TreeNode>
+        );
+      })}
+    </>
+  );
+}
+
+function HierarchyBrowserModal({ trackData, levelKey, path, rowText, bitrixTaskId, onPick, onClose }) {
   const t = useT();
   const [query, setQuery] = useState("");
-  const options = buildPlacementOptions(trackData, levelKey, t);
-  const q = query.trim().toLowerCase();
-  const filtered = q ? options.filter((o) => o.crumb.toLowerCase().includes(q)) : options;
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-4 w-full max-w-xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="text-sm font-semibold text-neutral-800 mb-2">{t("Выберите место в дереве трека")}</div>
+      <div className="bg-white rounded-2xl p-4 w-full max-w-xl max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold text-neutral-800">{t("Выберите место в дереве трека")}</div>
+        <div className="t11 text-neutral-500 mt-1 mb-2 bg-neutral-50 border border-neutral-200 rounded-md px-2 py-1.5">
+          {bitrixTaskId && <span className="font-medium text-neutral-700">№ {bitrixTaskId} — </span>}
+          <Truncated text={rowText} limit={140} />
+        </div>
         <input
           autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder={t("Поиск по дереву…")}
           className="text-sm border border-neutral-200 rounded-md px-2.5 py-1.5 mb-2 outline-none focus:border-neutral-400"
         />
-        <div className="overflow-y-auto space-y-1 flex-1">
-          {filtered.length === 0 && <div className="text-xs text-neutral-400 py-4 text-center">{t("Ничего не найдено")}</div>}
-          {filtered.map((o, i) => (
-            <button
-              key={i}
-              onClick={() => onPick(o.path)}
-              className="w-full text-left text-xs rounded-lg px-2.5 py-1.5 border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50"
-            >
-              {o.crumb}
-            </button>
-          ))}
+        <div className="overflow-y-auto flex-1 -mx-1 px-1">
+          <HierarchyTree
+            trackData={trackData} levelKey={levelKey} path={path} matchQuery={query}
+            onPick={(p) => { onPick(p); onClose(); }}
+          />
         </div>
         <button onClick={onClose} className="w-full text-xs text-neutral-400 hover:text-neutral-600 pt-2 shrink-0">{t("Отмена")}</button>
       </div>
@@ -6227,6 +6312,20 @@ function BitrixImportModule() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {rows.length > 0 && (
+            <button
+              onClick={() => {
+                if (window.confirm(t("Очистить весь черновик импорта? Уже применённые данные это не затронет — очищаются только строки, которые ещё не подтверждены."))) {
+                  setRows([]);
+                  setMessage("");
+                }
+              }}
+              disabled={busy}
+              className="flex items-center gap-1.5 text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 text-neutral-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"
+            >
+              <Trash2 size={13} /> {t("Очистить черновик")}
+            </button>
+          )}
           <button
             onClick={() => fileInputRef.current && fileInputRef.current.click()}
             disabled={busy}
@@ -6238,6 +6337,24 @@ function BitrixImportModule() {
         </div>
       </div>
       {message && <div className="text-xs text-neutral-500">{message}</div>}
+
+      {rows.length > 0 && (
+        <div className="flex justify-end -mt-1">
+          <button
+            onClick={() => {
+              const kept = rows.filter((r) => r.include);
+              const removed = rows.length - kept.length;
+              if (removed === 0) return;
+              if (window.confirm(t("Убрать из черновика строки без галочки")+` (${removed})?`)) {
+                setRows(kept);
+              }
+            }}
+            className="text-xs text-neutral-400 hover:text-red-500 underline"
+          >
+            {t("Убрать неотмеченные строки")}
+          </button>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div className="text-sm text-neutral-400 text-center py-10 border border-dashed border-neutral-200 rounded-xl">
@@ -6370,7 +6487,8 @@ function BitrixImportModule() {
                             />
                             {r.browsing && (
                               <HierarchyBrowserModal
-                                trackData={trackData} levelKey={r.levelKey}
+                                trackData={trackData} levelKey={r.levelKey} path={r.path}
+                                rowText={r.editedText || r.rawText} bitrixTaskId={r.bitrixTaskId}
                                 onPick={(p) => updateRow(r.rowId, { path: p, forceApply: false, browsing: false })}
                                 onClose={() => updateRow(r.rowId, { browsing: false })}
                               />
