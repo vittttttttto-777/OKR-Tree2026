@@ -2728,12 +2728,36 @@ function Field({ value, onChange, placeholder, multiline, small, frame }) {
   );
 }
 
+// Groups directory entries for owner-pickers by their `type` — old simple entries (company /
+// department / function) plus any of the new company-functions levels, each still labeled with
+// its own name (falling back to the level's own label from FUNCTION_LEVELS when it's not one of
+// the 3 legacy types). Order: legacy types first, then the function hierarchy top-to-bottom.
+const LEGACY_DIRECTORY_TYPES = ["company", "department", "function"];
+function directoryGroupOrder() {
+  return [...LEGACY_DIRECTORY_TYPES, ...FUNCTION_LEVELS.map((l) => l.key)];
+}
+function directoryGroupLabel(type, t) {
+  const legacy = { company: "Компания", department: "Отделы", function: "Функции" }[type];
+  if (legacy) return t(legacy);
+  const lvl = functionLevel(type);
+  return lvl ? lvl.label : type;
+}
+function groupDirectoryEntries(directory) {
+  const groups = {};
+  directory.forEach((d) => {
+    const key = d.type || "function";
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  });
+  return directoryGroupOrder()
+    .filter((key) => groups[key] && groups[key].length)
+    .map((key) => [key, groups[key]]);
+}
+
 function OwnerSelect({ value, onChange, compact }) {
   const t = useT();
   const directory = useDirectoryList();
-  const groups = { company: [], department: [], function: [] };
-  directory.forEach((d) => { if (groups[d.type]) groups[d.type].push(d); });
-  const typeLabel = { company: t("Компания"), department: t("Отделы"), function: t("Функции") };
+  const groupEntries = groupDirectoryEntries(directory);
   return (
     <select
       value={value || ""}
@@ -2744,15 +2768,13 @@ function OwnerSelect({ value, onChange, compact }) {
       }
     >
       <option value="">{t("Без ответственного")}</option>
-      {Object.entries(groups).map(([type, items]) =>
-        items.length ? (
-          <optgroup key={type} label={typeLabel[type]}>
-            {items.map((it) => (
-              <option key={it.id} value={it.id}>{it.name}</option>
-            ))}
-          </optgroup>
-        ) : null
-      )}
+      {groupEntries.map(([type, items]) => (
+        <optgroup key={type} label={directoryGroupLabel(type, t)}>
+          {items.map((it) => (
+            <option key={it.id} value={it.id}>{it.name}</option>
+          ))}
+        </optgroup>
+      ))}
     </select>
   );
 }
@@ -2964,9 +2986,7 @@ const GANTT_DEPTH_TONE = [TONES.mission, TONES.outcome, TONES.output, TONES.wave
 function OwnerPickerModal({ value, onChange, onClose, title }) {
   const t = useT();
   const directory = useDirectoryList();
-  const groups = { company: [], department: [], function: [] };
-  directory.forEach((d) => { if (groups[d.type]) groups[d.type].push(d); });
-  const typeLabel = { company: t("Компания"), department: t("Отделы"), function: t("Функции") };
+  const groupEntries = groupDirectoryEntries(directory);
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-4 w-full max-w-xs space-y-1.5 max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
@@ -2980,25 +3000,23 @@ function OwnerPickerModal({ value, onChange, onClose, title }) {
         >
           {t("Без ответственного")}
         </button>
-        {Object.entries(groups).map(([type, items]) =>
-          items.length ? (
-            <div key={type} className="pt-1.5 space-y-1">
-              <div className="t11 text-neutral-400 uppercase tracking-wide px-0.5">{typeLabel[type]}</div>
-              {items.map((it) => (
-                <button
-                  key={it.id}
-                  onClick={() => onChange(it.id)}
-                  className={
-                    "w-full text-left text-xs rounded-lg px-2.5 py-1.5 border " +
-                    (value === it.id ? "border-neutral-800 bg-neutral-50 font-medium" : "border-neutral-200 hover:bg-neutral-50")
-                  }
-                >
-                  {it.name}
-                </button>
-              ))}
-            </div>
-          ) : null
-        )}
+        {groupEntries.map(([type, items]) => (
+          <div key={type} className="pt-1.5 space-y-1">
+            <div className="t11 text-neutral-400 uppercase tracking-wide px-0.5">{directoryGroupLabel(type, t)}</div>
+            {items.map((it) => (
+              <button
+                key={it.id}
+                onClick={() => onChange(it.id)}
+                className={
+                  "w-full text-left text-xs rounded-lg px-2.5 py-1.5 border " +
+                  (value === it.id ? "border-neutral-800 bg-neutral-50 font-medium" : "border-neutral-200 hover:bg-neutral-50")
+                }
+              >
+                {it.name}
+              </button>
+            ))}
+          </div>
+        ))}
         <button onClick={onClose} className="w-full text-xs text-neutral-400 hover:text-neutral-600 pt-2">
           {t("Отмена")}
         </button>
@@ -6932,6 +6950,41 @@ function useDirectory(reloadToken) {
   return [directory || [], setDirectoryTracked, loaded];
 }
 
+// Same load/autosave shape as useDirectory, for the richer company-functions list — lifted to
+// the App level (rather than owned locally inside CompanyFunctionsModule) so it can also feed
+// DirectoryCtx, making these functions selectable everywhere "Ответственный" is assigned.
+function useCompanyFunctions(reloadToken) {
+  const [items, setItems] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    setLoaded(false);
+    dirtyRef.current = false;
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-company-functions", false);
+        const list = res ? JSON.parse(res.value) : [];
+        setItems(Array.isArray(list) ? list : []);
+        setLoaded(true);
+      } catch {
+        // Same non-destructive-on-failure fix as everywhere else in this file.
+      }
+    })();
+  }, [reloadToken]);
+  useEffect(() => {
+    if (!loaded || !dirtyRef.current || items === null) return;
+    const timer = setTimeout(() => {
+      window.storage.set("okr-company-functions", JSON.stringify(items), false).catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [items, loaded]);
+  const setItemsTracked = (updater) => {
+    dirtyRef.current = true;
+    setItems(updater);
+  };
+  return [items || [], setItemsTracked, loaded];
+}
+
 const TYPE_LABEL = { company: "Компания", department: "Отдел", function: "Функция" };
 const TYPE_COLOR = {
   company: "bg-purple-100 text-purple-700",
@@ -6978,14 +7031,10 @@ function matchFunctionType(raw) {
   return found || normFn(raw);
 }
 
-function CompanyFunctionsModule() {
+function CompanyFunctionsModule({ items, setItems, loaded }) {
   const t = useT();
   const fileInputRef = useRef(null);
-  const [items, setItems] = useState(null);
   const [draft, setDraft] = useState([]); // rows awaiting a level before they're saved
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState("");
-  const [reloadTick, setReloadTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [newName, setNewName] = useState("");
@@ -6993,33 +7042,7 @@ function CompanyFunctionsModule() {
   const [filterGroup, setFilterGroup] = useState("");
   const [expandedId, setExpandedId] = useState("");
 
-  useEffect(() => {
-    setLoaded(false);
-    setLoadError("");
-    (async () => {
-      try {
-        const res = await window.storage.get("okr-company-functions", false);
-        const list = res ? JSON.parse(res.value) : [];
-        setItems(Array.isArray(list) ? list : []);
-        setLoaded(true);
-      } catch (err) {
-        // Don't fall back to [] and mark it loaded — persist() below would then happily save
-        // an empty (or near-empty) list over whatever real functions are already stored, the
-        // moment the person adds or edits anything. Surface the error and block writes instead.
-        setLoadError(err && err.message ? err.message : String(err));
-      }
-    })();
-  }, [reloadTick]);
-
-  const persist = async (next) => {
-    if (!loaded) return; // guards against writing before a successful load ever happened
-    setItems(next);
-    try {
-      await window.storage.set("okr-company-functions", JSON.stringify(next), false);
-    } catch (err) {
-      setMessage(t("Не удалось сохранить: ") + err.message);
-    }
-  };
+  const persist = (next) => setItems(next);
 
   const handleFile = async (e) => {
     const file = e.target.files && e.target.files[0];
@@ -7113,20 +7136,6 @@ function CompanyFunctionsModule() {
     </select>
   );
 
-  if (loadError) {
-    return (
-      <div className="text-sm text-center py-12 space-y-2">
-        <div className="text-red-600">{t("Не удалось загрузить справочник функций — ничего не сохранено и не потеряно.")}</div>
-        <div className="text-xs text-neutral-400">{loadError}</div>
-        <button
-          onClick={() => setReloadTick((n) => n + 1)}
-          className="text-xs border border-neutral-300 rounded-md px-3 py-1.5 hover:bg-neutral-50"
-        >
-          {t("Повторить")}
-        </button>
-      </div>
-    );
-  }
   if (!loaded || items === null) return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
 
   const grouped = FUNCTION_LEVELS
@@ -7460,6 +7469,7 @@ export default function App() {
   const [trackId, setTrackId] = useState(TRACKS[0].id);
   const [refreshKey, setRefreshKey] = useState(0);
   const [directory, setDirectory] = useDirectory(refreshKey);
+  const [companyFunctions, setCompanyFunctions, companyFunctionsLoaded] = useCompanyFunctions(refreshKey);
   const roleAuth = useRoleAuth();
   const [lang, setLang] = useState(() => {
     try { return localStorage.getItem("okr-lang") || "ru"; } catch { return "ru"; }
@@ -7626,7 +7636,12 @@ export default function App() {
         </div>
 
         <AuthCtx.Provider value={authCtxValue}>
-        <DirectoryCtx.Provider value={directory}>
+        <DirectoryCtx.Provider
+          value={[
+            ...directory,
+            ...companyFunctions.map((f) => ({ id: f.id, name: f.name, type: f.levelKey || "function" })),
+          ]}
+        >
           {trackId === "combined" && authCtxValue.canView("combined_tree") ? (
             <CombinedTree key={`combined-${refreshKey}`} />
           ) : trackId === "projects" && authCtxValue.canView("projects") ? (
@@ -7641,7 +7656,10 @@ export default function App() {
             <GanttChart key={`gantt-${refreshKey}`} />
           ) : trackId === "company-functions" && authCtxValue.canView("company_functions") ? (
             <LockOverlay locked={!authCtxValue.canEdit("company_functions")} reason={t("Справочник функций редактирует администратор")}>
-              <CompanyFunctionsModule key={`company-functions-${refreshKey}`} />
+              <CompanyFunctionsModule
+                key={`company-functions-${refreshKey}`}
+                items={companyFunctions} setItems={setCompanyFunctions} loaded={companyFunctionsLoaded}
+              />
             </LockOverlay>
           ) : trackId === "bitrix-import" && authCtxValue.canView("bitrix_import") ? (
             <LockOverlay locked={!authCtxValue.canEdit("bitrix_import")} reason={t("Импорт доступен администратору")}>
