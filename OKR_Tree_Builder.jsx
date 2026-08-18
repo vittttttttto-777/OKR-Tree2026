@@ -122,6 +122,44 @@ const EN_DICT = {
   "Одна из главных стратегических целей трека на 18 месяцев": "One of the track's main strategic goals over 18 months",
   "Владелец Objective:": "Objective owner:",
   "Без ответственного": "No owner",
+  "Дирекция": "Directorate",
+  "Курирует несколько департаментов": "Oversees several departments",
+  "Департамент": "Department",
+  "4+ отделов, от 35 человек": "4+ units, 35+ people",
+  "Управление / служба": "Division / service",
+  "Объединяет несколько отделов": "Combines several units",
+  "3–30 человек, узкая специализация": "3–30 people, narrow specialization",
+  "Сектор / группа": "Sector / group",
+  "Внутри отдела": "Within a unit",
+  "Кластер дивизионального управления (L0/L1)": "Divisional management cluster (L0/L1)",
+  "Член СД / лидер кластера — обязательный член совета": "Board member / cluster lead — mandatory council member",
+  "Дивизион (L1)": "Division (L1)",
+  "Руководитель дивизиона — может войти в совет": "Division head — may join the council",
+  "Группа стран (L2)": "Country group (L2)",
+  "Руководитель группы стран — замещает, но не входит": "Country group head — deputizes but doesn't sit on it",
+  "Страна (L3)": "Country (L3)",
+  "Руководитель страны — может быть приглашён": "Country head — may be invited",
+  "Регион (L4)": "Region (L4)",
+  "Руководитель региона — входит в операционный совет": "Region head — sits on the operating council",
+  "Функциональная иерархия": "Functional hierarchy",
+  "Дивизиональная (географическая) иерархия": "Divisional (geographic) hierarchy",
+  "Справочник функций компании": "Company functions directory",
+  "Справочник функций": "Functions directory",
+  "Excel с одним столбцом названий — дальше вручную назначите каждой строке уровень в иерархии.":
+    "Excel with a single column of names — then assign each row a level in the hierarchy by hand.",
+  "Загрузить из Excel": "Upload from Excel",
+  "не нашёл названий в первом столбце файла": "couldn't find any names in the file's first column",
+  "На проверке:": "Under review:",
+  "готовы (уровень выбран)": "ready (level selected)",
+  "Добавить в справочник": "Add to directory",
+  "Уровень…": "Level…",
+  "Удалить эту функцию из справочника?": "Delete this function from the directory?",
+  "Название функции": "Function name",
+  "Все": "All",
+  "Справочник пуст — загрузите Excel или добавьте функцию вручную.": "The directory is empty — upload an Excel file or add a function by hand.",
+  "Добавлено: ": "Added: ",
+  "Не удалось сохранить: ": "Couldn't save: ",
+  "Справочник функций редактирует администратор": "The functions directory is edited by the administrator",
   "Импорт задач из Bitrix24": "Import tasks from Bitrix24",
   "Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги».":
     "Bitrix24 task export file (.xls) — columns \u201cName\u201d, \u201cDeadline\u201d, \u201cTags\u201d.",
@@ -6523,6 +6561,7 @@ const MODULES = [
   { key: "tracking_dashboard", label: "Дашборд трекинга" },
   { key: "gantt", label: "Гант" },
   { key: "directory", label: "Справочник" },
+  { key: "company_functions", label: "Справочник функций компании" },
   { key: "bitrix_import", label: "Импорт из Bitrix24" },
   { key: "privileges", label: "Управление привилегиями" },
 ];
@@ -6533,6 +6572,7 @@ function moduleKeyForDataKey(key) {
   if (key === "okr-directory") return "directory";
   if (key === "okr-links") return "combined_tree_links";
   if (key.startsWith("okr-bitrix-import")) return "bitrix_import";
+  if (key === "okr-company-functions") return "company_functions";
   return "privileges";
 }
 function effectivePermission(permissions, moduleKey) {
@@ -6700,6 +6740,258 @@ const TYPE_COLOR = {
   department: "bg-sky-100 text-sky-700",
   function: "bg-teal-100 text-teal-700",
 };
+
+// ---- Company Functions directory: two parallel org hierarchies (functional + divisional),
+// 5 levels each, per the company's official structure rules. Each entry picks exactly one
+// of these 10 levels — the level implies both which hierarchy it belongs to and its depth.
+const FUNCTION_LEVELS = [
+  { key: "directorate", group: "functional", order: 1, label: "Дирекция", hint: "Курирует несколько департаментов" },
+  { key: "department", group: "functional", order: 2, label: "Департамент", hint: "4+ отделов, от 35 человек" },
+  { key: "division_service", group: "functional", order: 3, label: "Управление / служба", hint: "Объединяет несколько отделов" },
+  { key: "unit", group: "functional", order: 4, label: "Отдел", hint: "3–30 человек, узкая специализация" },
+  { key: "sector", group: "functional", order: 5, label: "Сектор / группа", hint: "Внутри отдела" },
+  { key: "cluster", group: "divisional", order: 1, label: "Кластер дивизионального управления (L0/L1)", hint: "Член СД / лидер кластера — обязательный член совета" },
+  { key: "division", group: "divisional", order: 2, label: "Дивизион (L1)", hint: "Руководитель дивизиона — может войти в совет" },
+  { key: "country_group", group: "divisional", order: 3, label: "Группа стран (L2)", hint: "Руководитель группы стран — замещает, но не входит" },
+  { key: "country", group: "divisional", order: 4, label: "Страна (L3)", hint: "Руководитель страны — может быть приглашён" },
+  { key: "region", group: "divisional", order: 5, label: "Регион (L4)", hint: "Руководитель региона — входит в операционный совет" },
+];
+const FUNCTION_GROUP_LABEL = { functional: "Функциональная иерархия", divisional: "Дивизиональная (географическая) иерархия" };
+function functionLevel(key) { return FUNCTION_LEVELS.find((l) => l.key === key); }
+
+function CompanyFunctionsModule() {
+  const t = useT();
+  const fileInputRef = useRef(null);
+  const [items, setItems] = useState([]);
+  const [draft, setDraft] = useState([]); // rows awaiting a level before they're saved
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newLevel, setNewLevel] = useState(FUNCTION_LEVELS[3].key);
+  const [filterGroup, setFilterGroup] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get("okr-company-functions", false);
+        const list = res ? JSON.parse(res.value) : [];
+        setItems(Array.isArray(list) ? list : []);
+      } catch { setItems([]); }
+      setLoaded(true);
+    })();
+  }, []);
+
+  const persist = async (next) => {
+    setItems(next);
+    try {
+      await window.storage.set("okr-company-functions", JSON.stringify(next), false);
+    } catch (err) {
+      setMessage(t("Не удалось сохранить: ") + err.message);
+    }
+  };
+
+  const handleFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true); setMessage("");
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const firstSheet = wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1, defval: "" });
+      const names = [];
+      rows.forEach((r) => {
+        const cell = (r[0] || "").toString().trim();
+        if (!cell) return;
+        const low = cell.toLowerCase();
+        if (low === "название" || low === "название функции" || low === "name") return;
+        names.push(cell);
+      });
+      if (names.length === 0) throw new Error(t("не нашёл названий в первом столбце файла"));
+      setDraft(names.map((name) => ({ rowId: newId(), name, levelKey: "" })));
+      setMessage(t("Загружено строк: ") + names.length);
+    } catch (err) {
+      setMessage(t("Не удалось прочитать файл: ") + err.message);
+    }
+    setBusy(false);
+  };
+
+  const updateDraftRow = (rowId, patch) => setDraft((rs) => rs.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
+  const removeDraftRow = (rowId) => setDraft((rs) => rs.filter((r) => r.rowId !== rowId));
+  const readyDraft = draft.filter((r) => r.levelKey);
+
+  const applyDraft = () => {
+    if (readyDraft.length === 0) return;
+    const added = readyDraft.map((r) => ({ id: newId(), name: r.name, levelKey: r.levelKey }));
+    const appliedIds = new Set(readyDraft.map((r) => r.rowId));
+    persist([...items, ...added]);
+    setDraft((rs) => rs.filter((r) => !appliedIds.has(r.rowId)));
+    setMessage(t("Добавлено: ") + added.length);
+  };
+
+  const addOne = () => {
+    if (!newName.trim()) return;
+    persist([...items, { id: newId(), name: newName.trim(), levelKey: newLevel }]);
+    setNewName("");
+  };
+  const updateItem = (id, patch) => persist(items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  const removeItem = (id) => {
+    if (!window.confirm(t("Удалить эту функцию из справочника?"))) return;
+    persist(items.filter((it) => it.id !== id));
+  };
+
+  const grouped = FUNCTION_LEVELS
+    .filter((l) => !filterGroup || l.group === filterGroup)
+    .map((l) => ({ level: l, entries: items.filter((it) => it.levelKey === l.key) }));
+
+  if (!loaded) return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+
+  return (
+    <div className="space-y-3">
+      <div className="border border-neutral-200 rounded-xl p-3 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="text-sm font-medium text-neutral-800">{t("Справочник функций компании")}</div>
+          <div className="text-xs text-neutral-400 mt-0.5">
+            {t("Excel с одним столбцом названий — дальше вручную назначите каждой строке уровень в иерархии.")}
+          </div>
+        </div>
+        <button
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          disabled={busy}
+          className="flex items-center gap-1.5 text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50 disabled:opacity-50 shrink-0"
+        >
+          <Upload size={13} /> {t("Загрузить из Excel")}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
+      </div>
+      {message && <div className="text-xs text-neutral-500">{message}</div>}
+
+      {draft.length > 0 && (
+        <div className="border border-amber-200 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between t11 text-neutral-500">
+            <span>{t("На проверке:")} {readyDraft.length} {t("из")} {draft.length} {t("готовы (уровень выбран)")}</span>
+            <button
+              onClick={applyDraft} disabled={readyDraft.length === 0}
+              className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-40"
+            >
+              <CheckCircle2 size={13} /> {t("Добавить в справочник")}
+            </button>
+          </div>
+          <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
+            {draft.map((r) => (
+              <div key={r.rowId} className={`flex items-center gap-2 rounded-lg border p-2 ${r.levelKey ? "border-neutral-200" : "border-amber-200"}`}>
+                <span className="text-sm flex-1 min-w-0 break-words">{r.name}</span>
+                <select
+                  value={r.levelKey}
+                  onChange={(e) => updateDraftRow(r.rowId, { levelKey: e.target.value })}
+                  className="text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[220px]"
+                >
+                  <option value="">{t("Уровень…")}</option>
+                  {["functional", "divisional"].map((g) => (
+                    <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
+                      {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => (
+                        <option key={l.key} value={l.key}>{t(l.label)}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <button onClick={() => removeDraftRow(r.rowId)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="border border-neutral-200 rounded-xl p-3 space-y-2">
+        <div className="flex gap-1.5">
+          <input
+            className="flex-1 text-sm border border-neutral-200 rounded-md px-2 py-1 outline-none"
+            placeholder={t("Название функции")}
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addOne()}
+          />
+          <select value={newLevel} onChange={(e) => setNewLevel(e.target.value)} className="text-sm border border-neutral-200 rounded-md px-1.5 max-w-[220px]">
+            {["functional", "divisional"].map((g) => (
+              <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
+                {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => (
+                  <option key={l.key} value={l.key}>{t(l.label)}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <button onClick={addOne} className="px-2.5 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-800 shrink-0">
+            <Plus size={14} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-1.5 t11 flex-wrap">
+          <button
+            onClick={() => setFilterGroup("")}
+            className={`px-2 py-1 rounded-md border ${!filterGroup ? "bg-neutral-900 text-white border-neutral-900" : "border-neutral-200 text-neutral-500 hover:bg-neutral-50"}`}
+          >
+            {t("Все")} ({items.length})
+          </button>
+          {["functional", "divisional"].map((g) => (
+            <button
+              key={g}
+              onClick={() => setFilterGroup(g)}
+              className={`px-2 py-1 rounded-md border ${filterGroup === g ? "bg-neutral-900 text-white border-neutral-900" : "border-neutral-200 text-neutral-500 hover:bg-neutral-50"}`}
+            >
+              {t(FUNCTION_GROUP_LABEL[g])} ({items.filter((it) => functionLevel(it.levelKey) && functionLevel(it.levelKey).group === g).length})
+            </button>
+          ))}
+        </div>
+
+        {items.length === 0 ? (
+          <div className="text-sm text-neutral-400 text-center py-8 border border-dashed border-neutral-200 rounded-xl">
+            {t("Справочник пуст — загрузите Excel или добавьте функцию вручную.")}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {grouped.map(({ level, entries }) => entries.length > 0 && (
+              <div key={level.key}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="t11 font-medium px-1.5 py-0.5 rounded" style={{ background: level.group === "functional" ? "#EEF2FF" : "#ECFDF5", color: level.group === "functional" ? "#3730A3" : "#065F46" }}>
+                    {t(level.label)}
+                  </span>
+                  <span className="t10 text-neutral-400">{t(level.hint)}</span>
+                </div>
+                <div className="space-y-1">
+                  {entries.map((it) => (
+                    <div key={it.id} className="flex items-center gap-2 pl-1">
+                      <Field small value={it.name} onChange={(v) => updateItem(it.id, { name: v })} />
+                      <select
+                        value={it.levelKey}
+                        onChange={(e) => updateItem(it.id, { levelKey: e.target.value })}
+                        className="text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[200px]"
+                      >
+                        {["functional", "divisional"].map((g) => (
+                          <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
+                            {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => (
+                              <option key={l.key} value={l.key}>{t(l.label)}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                      <button onClick={() => removeItem(it.id)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DirectoryManager({ directory, setDirectory }) {
   const t = useT();
@@ -7018,6 +7310,16 @@ export default function App() {
               <CalendarRange size={13} /> {t("Гант")}
             </button>
           )}
+          {authCtxValue.canView("company_functions") && (
+            <button
+              onClick={() => setTrackId("company-functions")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                trackId === "company-functions" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+              }`}
+            >
+              <Briefcase size={13} /> {t("Справочник функций")}
+            </button>
+          )}
           {authCtxValue.canView("bitrix_import") && (
             <button
               onClick={() => setTrackId("bitrix-import")}
@@ -7054,6 +7356,10 @@ export default function App() {
             <TrackingDashboard key={`dashboard-${refreshKey}`} />
           ) : trackId === "gantt" && authCtxValue.canView("gantt") ? (
             <GanttChart key={`gantt-${refreshKey}`} />
+          ) : trackId === "company-functions" && authCtxValue.canView("company_functions") ? (
+            <LockOverlay locked={!authCtxValue.canEdit("company_functions")} reason={t("Справочник функций редактирует администратор")}>
+              <CompanyFunctionsModule key={`company-functions-${refreshKey}`} />
+            </LockOverlay>
           ) : trackId === "bitrix-import" && authCtxValue.canView("bitrix_import") ? (
             <LockOverlay locked={!authCtxValue.canEdit("bitrix_import")} reason={t("Импорт доступен администратору")}>
               <BitrixImportModule key={`bitrix-import-${refreshKey}`} />
