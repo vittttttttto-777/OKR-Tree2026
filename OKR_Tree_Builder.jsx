@@ -160,6 +160,25 @@ const EN_DICT = {
   "Добавлено: ": "Added: ",
   "Не удалось сохранить: ": "Couldn't save: ",
   "Справочник функций редактирует администратор": "The functions directory is edited by the administrator",
+  "Не удалось загрузить трек — размещение недоступно": "Couldn't load the track — placement unavailable",
+  "Не удалось загрузить данные трека — ничего не сохранено и не потеряно.": "Couldn't load the track's data — nothing was saved or lost.",
+  "Повторить": "Retry",
+  "Не удалось загрузить справочник функций — ничего не сохранено и не потеряно.": "Couldn't load the functions directory — nothing was saved or lost.",
+  "список ключей пуст — возможно, сбой чтения; бэкап не сохранён": "the key list came back empty — likely a read failure; backup not saved",
+  "не удалось прочитать часть данных, бэкап не сохранён — попробуйте ещё раз: ": "couldn't read part of the data, backup not saved — please try again: ",
+  "Бэкап сохранён — ключей: ": "Backup saved — keys: ",
+  "Не удалось сделать бэкап: ": "Couldn't make the backup: ",
+  "Восстановить данные из этого бэкапа? Это перезапишет текущие данные по каждому ключу, который есть в файле.":
+    "Restore data from this backup? This will overwrite current data for every key present in the file.",
+  "в файле не нашлось данных для восстановления": "no restorable data found in the file",
+  "Восстановлено ключей:": "Keys restored:",
+  "не удалось (нет прав или ошибка):": "failed (no permission or an error):",
+  "Не удалось прочитать файл бэкапа: ": "Couldn't read the backup file: ",
+  "Полный бэкап данных": "Full data backup",
+  "Один JSON-файл со всеми данными приложения — все треки, проекты, справочники, черновики импорта. Роли и пароли сюда не входят, они хранятся отдельно.":
+    "One JSON file with all the app's data — every track, projects, directories, import drafts. Roles and passwords aren't included; they're stored separately.",
+  "Скачать полный бэкап": "Download full backup",
+  "Восстановить из бэкапа": "Restore from backup",
   "Верхний уровень": "Top level",
   "Функциональная (Global)": "Functional (Global)",
   "Дивизиональная (Local)": "Divisional (Local)",
@@ -3239,33 +3258,45 @@ function KROutcomeCard({ path, outcome, onRemove }) {
 function TrackEditor({ trackId }) {
   const t = useT();
   const authCtx = useAuthCtx();
-  const [data, setData] = useState(createTrackData());
+  const [data, setData] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [reloadTick, setReloadTick] = useState(0);
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
+    setLoadError("");
+    dirtyRef.current = false;
     (async () => {
       try {
         const res = await window.storage.get(`okr-track:${trackId}`, false);
-        if (!cancelled) setData(res ? migrateTrackData(JSON.parse(res.value)) : createTrackData());
-      } catch {
-        if (!cancelled) setData(createTrackData());
+        if (cancelled) return;
+        setData(res ? migrateTrackData(JSON.parse(res.value)) : createTrackData());
+        setLoaded(true);
+      } catch (err) {
+        // A fetch failure here used to fall back to a blank createTrackData() and mark the
+        // track "loaded" anyway — which meant the save effect below would then write that
+        // blank track over whatever real data was already in the database. Instead: leave
+        // `data` untouched (still null) and `loaded` false, and surface the error so nothing
+        // gets silently wiped. The person can retry once the transient issue clears.
+        if (!cancelled) setLoadError(err && err.message ? err.message : String(err));
       }
-      if (!cancelled) setLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [trackId]);
+  }, [trackId, reloadTick]);
 
   useEffect(() => {
-    if (!loaded) return;
-    const t = setTimeout(() => {
+    if (!loaded || !dirtyRef.current || !data) return;
+    const timer = setTimeout(() => {
       window.storage.set(`okr-track:${trackId}`, JSON.stringify(data), false).catch(() => {});
     }, 400);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [data, loaded, trackId]);
 
   const update = useCallback((path, value) => {
+    dirtyRef.current = true;
     setData((prev) => {
       const draft = JSON.parse(JSON.stringify(prev));
       let node = draft;
@@ -3276,6 +3307,7 @@ function TrackEditor({ trackId }) {
   }, []);
 
   const addOutcome = (uoIdx) => {
+    dirtyRef.current = true;
     setData((prev) => {
       const draft = JSON.parse(JSON.stringify(prev));
       const uo = draft.ultimateObjectives[uoIdx];
@@ -3285,6 +3317,7 @@ function TrackEditor({ trackId }) {
     });
   };
   const removeOutcome = (uoIdx, id) => {
+    dirtyRef.current = true;
     setData((prev) => {
       const draft = JSON.parse(JSON.stringify(prev));
       const uo = draft.ultimateObjectives[uoIdx];
@@ -3293,19 +3326,36 @@ function TrackEditor({ trackId }) {
     });
   };
   const addUltimateObjective = () => {
+    dirtyRef.current = true;
     setData((prev) => {
       if (prev.ultimateObjectives.length >= MAX_ULTIMATE_OBJECTIVES) return prev;
       return { ...prev, ultimateObjectives: [...prev.ultimateObjectives, createUltimateObjective(prev.ultimateObjectives.length + 1)] };
     });
   };
   const removeUltimateObjective = (id) => {
+    dirtyRef.current = true;
     setData((prev) => {
       if (prev.ultimateObjectives.length <= 1) return prev;
       return { ...prev, ultimateObjectives: prev.ultimateObjectives.filter((u) => u.id !== id) };
     });
   };
 
-  if (!loaded) {
+  if (loadError) {
+    return (
+      <div className="text-sm text-center py-12 space-y-2">
+        <div className="text-red-600">{t("Не удалось загрузить данные трека — ничего не сохранено и не потеряно.")}</div>
+        <div className="text-xs text-neutral-400">{loadError}</div>
+        <button
+          onClick={() => setReloadTick((n) => n + 1)}
+          className="text-xs border border-neutral-300 rounded-md px-3 py-1.5 hover:bg-neutral-50"
+        >
+          {t("Повторить")}
+        </button>
+      </div>
+    );
+  }
+
+  if (!loaded || !data) {
     return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
   }
 
@@ -4092,52 +4142,64 @@ function migrateProject(p) {
 }
 
 function useProjectStatuses() {
-  const [statuses, setStatuses] = useState(DEFAULT_PROJECT_STATUSES);
+  const [statuses, setStatuses] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const dirtyRef = useRef(false);
   useEffect(() => {
     (async () => {
       try {
         const res = await window.storage.get("okr-project-statuses", false);
         setStatuses(res ? JSON.parse(res.value) : DEFAULT_PROJECT_STATUSES);
+        setLoaded(true);
       } catch {
-        setStatuses(DEFAULT_PROJECT_STATUSES);
+        // Same fix as elsewhere: don't fall back to defaults and risk auto-saving them over
+        // real custom statuses on a transient fetch failure.
       }
-      setLoaded(true);
     })();
   }, []);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !dirtyRef.current || !statuses) return;
     const t = setTimeout(() => {
       window.storage.set("okr-project-statuses", JSON.stringify(statuses), false).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
   }, [statuses, loaded]);
-  return [statuses, setStatuses, loaded];
+  const setStatusesTracked = (updater) => {
+    dirtyRef.current = true;
+    setStatuses(updater);
+  };
+  return [statuses || DEFAULT_PROJECT_STATUSES, setStatusesTracked, loaded];
 }
 
 function useProjects() {
   const [projects, setProjects] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const dirtyRef = useRef(false);
   useEffect(() => {
     (async () => {
       try {
         const res = await window.storage.get("okr-projects", false);
         const raw = res ? JSON.parse(res.value) : PROJECTS_SEED;
         setProjects(raw.map(migrateProject));
+        setLoaded(true);
       } catch {
-        setProjects(PROJECTS_SEED.map(migrateProject));
+        // Same fix as TrackEditor/useDirectory: a failed fetch must not fall back to seed data
+        // and then get auto-saved over whatever real projects already exist in the database.
       }
-      setLoaded(true);
     })();
   }, []);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !dirtyRef.current || !projects) return;
     const t = setTimeout(() => {
       window.storage.set("okr-projects", JSON.stringify(projects), false).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
   }, [projects, loaded]);
-  return [projects, setProjects, loaded];
+  const setProjectsTracked = (updater) => {
+    dirtyRef.current = true;
+    setProjects(updater);
+  };
+  return [projects, setProjectsTracked, loaded];
 }
 
 function projectShareTone(count) {
@@ -5569,6 +5631,108 @@ function TrackingDashboard() {
   );
 }
 
+function FullBackupBar() {
+  const t = useT();
+  const fileInputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const handleBackup = async () => {
+    setBusy(true); setMessage("");
+    try {
+      const listRes = await window.storage.list(null, false);
+      const keys = (listRes && listRes.keys) || [];
+      if (keys.length === 0) throw new Error(t("список ключей пуст — возможно, сбой чтения; бэкап не сохранён"));
+      const data = {};
+      const failedKeys = [];
+      for (const key of keys) {
+        try {
+          const res = await window.storage.get(key, false);
+          data[key] = res ? JSON.parse(res.value) : null;
+        } catch {
+          failedKeys.push(key);
+        }
+      }
+      if (failedKeys.length > 0) {
+        throw new Error(t("не удалось прочитать часть данных, бэкап не сохранён — попробуйте ещё раз: ") + failedKeys.join(", "));
+      }
+      const backup = { version: 1, exportedAt: new Date().toISOString(), keyCount: keys.length, data };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `OKR_Backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setMessage(t("Бэкап сохранён — ключей: ") + keys.length);
+    } catch (err) {
+      setMessage(t("Не удалось сделать бэкап: ") + err.message);
+    }
+    setBusy(false);
+  };
+
+  const handleRestoreFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!window.confirm(t("Восстановить данные из этого бэкапа? Это перезапишет текущие данные по каждому ключу, который есть в файле."))) return;
+    setBusy(true); setMessage("");
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const data = parsed && parsed.data ? parsed.data : parsed;
+      const keys = Object.keys(data || {});
+      if (keys.length === 0) throw new Error(t("в файле не нашлось данных для восстановления"));
+      let ok = 0;
+      const failed = [];
+      for (const key of keys) {
+        try {
+          const res = await window.storage.set(key, JSON.stringify(data[key]), false);
+          if (res) ok++; else failed.push(key);
+        } catch {
+          failed.push(key);
+        }
+      }
+      setMessage(
+        `${t("Восстановлено ключей:")} ${ok} ${t("из")} ${keys.length}` +
+        (failed.length ? ` · ${t("не удалось (нет прав или ошибка):")} ${failed.join(", ")}` : "")
+      );
+    } catch (err) {
+      setMessage(t("Не удалось прочитать файл бэкапа: ") + err.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="border border-neutral-200 rounded-xl p-3 flex items-center justify-between flex-wrap gap-3">
+      <div>
+        <div className="text-sm font-medium text-neutral-800">{t("Полный бэкап данных")}</div>
+        <div className="text-xs text-neutral-400 mt-0.5">
+          {t("Один JSON-файл со всеми данными приложения — все треки, проекты, справочники, черновики импорта. Роли и пароли сюда не входят, они хранятся отдельно.")}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleBackup} disabled={busy}
+          className="flex items-center gap-1.5 text-xs bg-neutral-900 text-white rounded-md px-2.5 py-1.5 disabled:opacity-50"
+        >
+          <Download size={13} /> {t("Скачать полный бэкап")}
+        </button>
+        <button
+          onClick={() => fileInputRef.current && fileInputRef.current.click()} disabled={busy}
+          className="flex items-center gap-1.5 text-xs border border-neutral-200 rounded-md px-2.5 py-1.5 hover:bg-neutral-50 disabled:opacity-50"
+        >
+          <Upload size={13} /> {t("Восстановить из бэкапа")}
+        </button>
+        <input ref={fileInputRef} type="file" accept=".json" className="hidden" onChange={handleRestoreFile} />
+      </div>
+      {message && <div className="text-xs text-neutral-500 basis-full">{message}</div>}
+    </div>
+  );
+}
+
 function ExportImportBar({ directory, setDirectory, onImported }) {
   const t = useT();
   const fileInputRef = useRef(null);
@@ -6204,6 +6368,7 @@ function BitrixImportModule() {
   const [rows, setRows] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [tracksCache, setTracksCache] = useState({});
+  const [trackLoadErrors, setTrackLoadErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -6213,8 +6378,12 @@ function BitrixImportModule() {
         const res = await window.storage.get("okr-bitrix-import:draft", false);
         const draft = res ? JSON.parse(res.value) : [];
         setRows(Array.isArray(draft) ? draft : []);
-      } catch { setRows([]); }
-      setLoaded(true);
+        setLoaded(true);
+      } catch {
+        // Don't fall back to an empty draft and mark it loaded — the autosave effect below
+        // would then overwrite whatever review progress was already saved. Just stay
+        // unloaded; the person can reopen the tab or reload once the issue clears.
+      }
     })();
   }, []);
 
@@ -6227,21 +6396,27 @@ function BitrixImportModule() {
   }, [rows, loaded]);
 
   useEffect(() => {
-    const missing = [...new Set(rows.map((r) => r.trackId).filter(Boolean))].filter((tid) => !tracksCache[tid]);
+    const missing = [...new Set(rows.map((r) => r.trackId).filter(Boolean))].filter((tid) => !tracksCache[tid] && !trackLoadErrors[tid]);
     if (missing.length === 0) return;
     (async () => {
       const updates = {};
+      const errors = {};
       for (const tid of missing) {
         try {
           const res = await window.storage.get(`okr-track:${tid}`, false);
           updates[tid] = res ? migrateTrackData(JSON.parse(res.value)) : createTrackData();
-        } catch {
-          updates[tid] = createTrackData();
+        } catch (err) {
+          // Do NOT fall back to a blank createTrackData() here — that fake-empty track could
+          // later get written back over the real one via "Применить отмеченное". Leave this
+          // track out of the cache entirely so any row targeting it simply can't be applied
+          // until the real fetch succeeds.
+          errors[tid] = err && err.message ? err.message : String(err);
         }
       }
-      setTracksCache((c) => ({ ...c, ...updates }));
+      if (Object.keys(updates).length) setTracksCache((c) => ({ ...c, ...updates }));
+      if (Object.keys(errors).length) setTrackLoadErrors((c) => ({ ...c, ...errors }));
     })();
-  }, [rows, tracksCache]);
+  }, [rows, tracksCache, trackLoadErrors]);
 
   // Once a row's track finishes loading, check whether this exact Bitrix task was already
   // imported before (matched by its Bitrix ID, not by guessing) — if so, pre-fill its known
@@ -6546,7 +6721,10 @@ function BitrixImportModule() {
                             )}
                           </>
                         )}
-                        {r.trackId && !trackData && <span className="t11 text-neutral-400">{t("Загрузка трека…")}</span>}
+                        {r.trackId && !trackData && trackLoadErrors[r.trackId] && (
+                          <span className="t11 text-red-600" title={trackLoadErrors[r.trackId]}>{t("Не удалось загрузить трек — размещение недоступно")}</span>
+                        )}
+                        {r.trackId && !trackData && !trackLoadErrors[r.trackId] && <span className="t11 text-neutral-400">{t("Загрузка трека…")}</span>}
                       </div>
                     </div>
                   </div>
@@ -6723,28 +6901,35 @@ function LockOverlay({ locked, reason, children }) {
 }
 
 function useDirectory(reloadToken) {
-  const [directory, setDirectory] = useState([]);
+  const [directory, setDirectory] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const dirtyRef = useRef(false);
   useEffect(() => {
     setLoaded(false);
+    dirtyRef.current = false;
     (async () => {
       try {
         const res = await window.storage.get("okr-directory", false);
         setDirectory(res ? JSON.parse(res.value) : []);
+        setLoaded(true);
       } catch {
-        setDirectory([]);
+        // Leave directory as-is (not loaded) rather than falling back to [] and later saving
+        // that empty list over real data — see the same fix in TrackEditor for the full story.
       }
-      setLoaded(true);
     })();
   }, [reloadToken]);
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !dirtyRef.current || directory === null) return;
     const t = setTimeout(() => {
       window.storage.set("okr-directory", JSON.stringify(directory), false).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
   }, [directory, loaded]);
-  return [directory, setDirectory];
+  const setDirectoryTracked = (updater) => {
+    dirtyRef.current = true;
+    setDirectory(updater);
+  };
+  return [directory || [], setDirectoryTracked, loaded];
 }
 
 const TYPE_LABEL = { company: "Компания", department: "Отдел", function: "Функция" };
@@ -6796,9 +6981,11 @@ function matchFunctionType(raw) {
 function CompanyFunctionsModule() {
   const t = useT();
   const fileInputRef = useRef(null);
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState(null);
   const [draft, setDraft] = useState([]); // rows awaiting a level before they're saved
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [reloadTick, setReloadTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [newName, setNewName] = useState("");
@@ -6807,17 +6994,25 @@ function CompanyFunctionsModule() {
   const [expandedId, setExpandedId] = useState("");
 
   useEffect(() => {
+    setLoaded(false);
+    setLoadError("");
     (async () => {
       try {
         const res = await window.storage.get("okr-company-functions", false);
         const list = res ? JSON.parse(res.value) : [];
         setItems(Array.isArray(list) ? list : []);
-      } catch { setItems([]); }
-      setLoaded(true);
+        setLoaded(true);
+      } catch (err) {
+        // Don't fall back to [] and mark it loaded — persist() below would then happily save
+        // an empty (or near-empty) list over whatever real functions are already stored, the
+        // moment the person adds or edits anything. Surface the error and block writes instead.
+        setLoadError(err && err.message ? err.message : String(err));
+      }
     })();
-  }, []);
+  }, [reloadTick]);
 
   const persist = async (next) => {
+    if (!loaded) return; // guards against writing before a successful load ever happened
     setItems(next);
     try {
       await window.storage.set("okr-company-functions", JSON.stringify(next), false);
@@ -6918,11 +7113,25 @@ function CompanyFunctionsModule() {
     </select>
   );
 
+  if (loadError) {
+    return (
+      <div className="text-sm text-center py-12 space-y-2">
+        <div className="text-red-600">{t("Не удалось загрузить справочник функций — ничего не сохранено и не потеряно.")}</div>
+        <div className="text-xs text-neutral-400">{loadError}</div>
+        <button
+          onClick={() => setReloadTick((n) => n + 1)}
+          className="text-xs border border-neutral-300 rounded-md px-3 py-1.5 hover:bg-neutral-50"
+        >
+          {t("Повторить")}
+        </button>
+      </div>
+    );
+  }
+  if (!loaded || items === null) return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
+
   const grouped = FUNCTION_LEVELS
     .filter((l) => !filterGroup || l.group === filterGroup)
     .map((l) => ({ level: l, entries: items.filter((it) => it.levelKey === l.key) }));
-
-  if (!loaded) return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
 
   return (
     <div className="space-y-3">
@@ -7298,6 +7507,10 @@ export default function App() {
         </div>
 
         <RoleAuthBar auth={roleAuth} onSignedInChange={() => setRefreshKey((k) => k + 1)} />
+
+        {authCtxValue.isAdmin && (
+          <FullBackupBar />
+        )}
 
         {authCtxValue.isAdmin && (
           <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
