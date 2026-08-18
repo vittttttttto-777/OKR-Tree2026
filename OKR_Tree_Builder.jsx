@@ -164,6 +164,13 @@ const EN_DICT = {
   "Не удалось загрузить данные трека — ничего не сохранено и не потеряно.": "Couldn't load the track's data — nothing was saved or lost.",
   "Повторить": "Retry",
   "Не удалось загрузить справочник функций — ничего не сохранено и не потеряно.": "Couldn't load the functions directory — nothing was saved or lost.",
+  "Инициатива": "Initiative",
+  "Инициативы": "Initiatives",
+  "Добавить инициативу": "Add initiative",
+  "Стратегическая инициатива…": "Strategic initiative…",
+  "новая инициатива": "new initiative",
+  "Инициатива появится после создания KR Outcome": "The initiative becomes available once the KR Outcome is created",
+  "KR Output появится после создания инициативы": "KR Output becomes available once the initiative is created",
   "список ключей пуст — возможно, сбой чтения; бэкап не сохранён": "the key list came back empty — likely a read failure; backup not saved",
   "не удалось прочитать часть данных, бэкап не сохранён — попробуйте ещё раз: ": "couldn't read part of the data, backup not saved — please try again: ",
   "Бэкап сохранён — ключей: ": "Backup saved — keys: ",
@@ -2055,17 +2062,25 @@ function createKROutput(n) {
     ],
   };
 }
+const MAX_INITIATIVES = 5;
+function createInitiative(n) {
+  return {
+    id: newId(),
+    label: `Инициатива ${n}`,
+    text: "",
+    objectiveText: "",
+    objectiveOwner: "",
+    krOutputs: [createKROutput(1), createKROutput(2), createKROutput(3)],
+  };
+}
 function createKROutcome(n) {
   return {
     id: newId(),
     label: `KR Outcome ${n}`,
     text: "",
     metric: "",
-    initiativeText: "",
-    objectiveText: "",
-    objectiveOwner: "",
     tracking: null,
-    krOutputs: [createKROutput(1), createKROutput(2), createKROutput(3)],
+    initiatives: [createInitiative(1)],
   };
 }
 const MAX_ULTIMATE_OBJECTIVES = 2;
@@ -2073,14 +2088,42 @@ const MAX_KR_OUTCOMES = 4;
 function createUltimateObjective(n) {
   return { id: newId(), label: `Главная цель ${n}`, text: "", owner: "", krOutcomes: [] };
 }
+// One KR Outcome used to hold a single Strategic Initiative's fields directly
+// (initiativeText/objectiveText/objectiveOwner/krOutputs). Now an Outcome holds up to
+// MAX_INITIATIVES separate Initiative nodes, each with its own execution branch. Old data gets
+// wrapped as "Инициатива 1" — nothing here is dropped, just re-homed one level deeper.
+function migrateKROutcome(o) {
+  if (o && Array.isArray(o.initiatives)) return o;
+  return {
+    id: o.id || newId(),
+    label: o.label || "KR Outcome",
+    text: o.text || "",
+    metric: o.metric || "",
+    tracking: o.tracking || null,
+    initiatives: [{
+      id: newId(),
+      label: "Инициатива 1",
+      text: o.initiativeText || "",
+      objectiveText: o.objectiveText || "",
+      objectiveOwner: o.objectiveOwner || "",
+      krOutputs: o.krOutputs || [],
+    }],
+  };
+}
 function migrateTrackData(data) {
   if (!data) return createTrackData();
+  const runMigration = (d) => {
+    d.ultimateObjectives.forEach((uo) => {
+      uo.krOutcomes = (uo.krOutcomes || []).map(migrateKROutcome);
+    });
+    return d;
+  };
   if (Array.isArray(data.ultimateObjectives)) {
     if (!data.startDate) data.startDate = todayISO();
-    return data;
+    return runMigration(data);
   }
   // legacy shape: single ultimateObjective/Owner + top-level krOutcomes
-  return {
+  return runMigration({
     mission: data.mission || "",
     startDate: todayISO(),
     ultimateObjectives: [{
@@ -2090,7 +2133,7 @@ function migrateTrackData(data) {
       owner: data.ultimateObjectiveOwner || "",
       krOutcomes: data.krOutcomes || [],
     }],
-  };
+  });
 }
 
 function createTrackData() {
@@ -2215,46 +2258,49 @@ function buildStructureRows(trackName, data, directory) {
   const rows = [];
   (data.ultimateObjectives || []).forEach((uo, ui) => {
     (uo.krOutcomes || []).forEach((o, oi) => {
-      (o.krOutputs || []).forEach((ko, ki) => {
-        (ko.waves || []).forEach((w, wi) => {
-          const base = {
-            "Трек": trackName,
-            "Главная цель №": ui + 1,
-            "Ultimate Objective": uo.text,
-            "Владелец Ultimate Objective": ownerNameById(directory, uo.owner),
-            "KR Outcome №": oi + 1,
-            "KR Outcome": o.text,
-            "Метрика": o.metric,
-            "Стратегическая инициатива": o.initiativeText,
-            "Objective инициативы": o.objectiveText,
-            "Владелец Objective инициативы": ownerNameById(directory, o.objectiveOwner),
-            "KR Output №": ki + 1,
-            "KR Output": ko.text,
-            "Волна №": wi + 1,
-          };
-          if (w.status === "decomposed") {
-            w.quarters.forEach((q, qi) => {
+      (o.initiatives || []).forEach((ini, ii) => {
+        (ini.krOutputs || []).forEach((ko, ki) => {
+          (ko.waves || []).forEach((w, wi) => {
+            const base = {
+              "Трек": trackName,
+              "Главная цель №": ui + 1,
+              "Ultimate Objective": uo.text,
+              "Владелец Ultimate Objective": ownerNameById(directory, uo.owner),
+              "KR Outcome №": oi + 1,
+              "KR Outcome": o.text,
+              "Метрика": o.metric,
+              "Инициатива №": ii + 1,
+              "Стратегическая инициатива": ini.text,
+              "Objective инициативы": ini.objectiveText,
+              "Владелец Objective инициативы": ownerNameById(directory, ini.objectiveOwner),
+              "KR Output №": ki + 1,
+              "KR Output": ko.text,
+              "Волна №": wi + 1,
+            };
+            if (w.status === "decomposed") {
+              w.quarters.forEach((q, qi) => {
+                rows.push({
+                  ...base,
+                  "Цель-ориентир волны": "",
+                  "Objective на 6 мес.": w.objective6mo,
+                  "Владелец Objective 6 мес.": ownerNameById(directory, w.objective6moOwner),
+                  "Квартал (1-3 / 4-6)": qi === 0 ? "1-3" : "4-6",
+                  "KR-веха квартала": q.milestone,
+                  "Инициатива на 3 мес.": q.initiative3mo,
+                  "Objective квартала": q.objective,
+                  "Владелец Objective квартала": ownerNameById(directory, q.objectiveOwner),
+                });
+              });
+            } else {
               rows.push({
                 ...base,
-                "Цель-ориентир волны": "",
-                "Objective на 6 мес.": w.objective6mo,
-                "Владелец Objective 6 мес.": ownerNameById(directory, w.objective6moOwner),
-                "Квартал (1-3 / 4-6)": qi === 0 ? "1-3" : "4-6",
-                "KR-веха квартала": q.milestone,
-                "Инициатива на 3 мес.": q.initiative3mo,
-                "Objective квартала": q.objective,
-                "Владелец Objective квартала": ownerNameById(directory, q.objectiveOwner),
+                "Цель-ориентир волны": w.targetText,
+                "Objective на 6 мес.": "", "Владелец Objective 6 мес.": "",
+                "Квартал (1-3 / 4-6)": "", "KR-веха квартала": "", "Инициатива на 3 мес.": "",
+                "Objective квартала": "", "Владелец Objective квартала": "",
               });
-            });
-          } else {
-            rows.push({
-              ...base,
-              "Цель-ориентир волны": w.targetText,
-              "Objective на 6 мес.": "", "Владелец Objective 6 мес.": "",
-              "Квартал (1-3 / 4-6)": "", "KR-веха квартала": "", "Инициатива на 3 мес.": "",
-              "Objective квартала": "", "Владелец Objective квартала": "",
-            });
-          }
+            }
+          });
         });
       });
     });
@@ -2266,25 +2312,27 @@ function buildTaskRows(trackName, data, directory) {
   const rows = [];
   (data.ultimateObjectives || []).forEach((uo, ui) => {
     (uo.krOutcomes || []).forEach((o, oi) => {
-      (o.krOutputs || []).forEach((ko, ki) => {
-        (ko.waves || []).forEach((w, wi) => {
-          if (w.status !== "decomposed") return;
-          w.quarters.forEach((q, qi) => {
-            q.monthlyKRs.forEach((m, mi) => {
-              const monthNo = qi * 3 + mi + 1;
-              const base = {
-                "Трек": trackName, "Главная цель №": ui + 1, "KR Outcome №": oi + 1,
-                "KR Output №": ki + 1, "Волна №": wi + 1, "Месяц №": monthNo,
-              };
-              const filledTasks = m.tasks.filter((t) => t.text);
-              if (!m.text && filledTasks.length === 0) return;
-              if (filledTasks.length === 0) {
-                rows.push({ ...base, "KR месяца": m.text, "Задача": "", "Ответственный": "" });
-              } else {
-                filledTasks.forEach((t) => {
-                  rows.push({ ...base, "KR месяца": m.text, "Задача": t.text, "Ответственный": ownerNameById(directory, t.ownerId) });
-                });
-              }
+      (o.initiatives || []).forEach((ini, ii) => {
+        (ini.krOutputs || []).forEach((ko, ki) => {
+          (ko.waves || []).forEach((w, wi) => {
+            if (w.status !== "decomposed") return;
+            w.quarters.forEach((q, qi) => {
+              q.monthlyKRs.forEach((m, mi) => {
+                const monthNo = qi * 3 + mi + 1;
+                const base = {
+                  "Трек": trackName, "Главная цель №": ui + 1, "KR Outcome №": oi + 1, "Инициатива №": ii + 1,
+                  "KR Output №": ki + 1, "Волна №": wi + 1, "Месяц №": monthNo,
+                };
+                const filledTasks = m.tasks.filter((t) => t.text);
+                if (!m.text && filledTasks.length === 0) return;
+                if (filledTasks.length === 0) {
+                  rows.push({ ...base, "KR месяца": m.text, "Задача": "", "Ответственный": "" });
+                } else {
+                  filledTasks.forEach((t) => {
+                    rows.push({ ...base, "KR месяца": m.text, "Задача": t.text, "Ответственный": ownerNameById(directory, t.ownerId) });
+                  });
+                }
+              });
             });
           });
         });
@@ -2378,85 +2426,99 @@ function rebuildTrackFromSheets(trackName, trackRow, structureRows, taskRows, ex
       krOutcomes: outcomeNos.map((oNo, oi) => {
         const oRows = outcomeGroups.get(oNo);
         const existingOutcome = existingUo && existingUo.krOutcomes[oi];
-        const outputGroups = groupByNum(oRows, "KR Output №");
-        const outputNos = Array.from(outputGroups.keys()).sort((a, b) => a - b);
+
+        const initGroups = groupByNum(oRows, "Инициатива №");
+        const initNos = Array.from(initGroups.keys()).sort((a, b) => a - b).slice(0, MAX_INITIATIVES);
+        const finalInitNos = initNos.length ? initNos : [1];
 
         return {
           id: existingOutcome ? existingOutcome.id : newId(),
           label: existingOutcome ? existingOutcome.label : `KR Outcome ${oi + 1}`,
           text: firstNonEmpty(oRows, "KR Outcome"),
           metric: firstNonEmpty(oRows, "Метрика"),
-          initiativeText: firstNonEmpty(oRows, "Стратегическая инициатива"),
-          objectiveText: firstNonEmpty(oRows, "Objective инициативы"),
-          objectiveOwner: resolveOwnerId(firstNonEmpty(oRows, "Владелец Objective инициативы"), directory, newDirEntries),
-          krOutputs: outputNos.map((koNo, ki) => {
-            const koRows = outputGroups.get(koNo);
-            const existingOutput = existingOutcome && existingOutcome.krOutputs[ki];
-            const waveGroups = groupByNum(koRows, "Волна №");
+          initiatives: finalInitNos.map((iniNo, ii) => {
+            const iniRows = initGroups.get(iniNo) || oRows;
+            const existingInitiative = existingOutcome && existingOutcome.initiatives && existingOutcome.initiatives[ii];
+            const outputGroups = groupByNum(iniRows, "KR Output №");
+            const outputNos = Array.from(outputGroups.keys()).sort((a, b) => a - b);
 
-            const waves = [0, 1, 2].map((wi) => {
-              const wRows = waveGroups.get(wi + 1) || [];
-              const existingWave = existingOutput && existingOutput.waves[wi];
-              const periodLabel = wi === 0 ? "1–6 мес из 18" : wi === 1 ? "7–12 мес из 18" : "13–18 мес из 18";
-              const hasQuarterData = wRows.some((r) => String(r["Квартал (1-3 / 4-6)"] || "").trim() !== "");
-              const qLabels = ["1–3 мес", "4–6 мес"];
-              const monthLabelsFor = [["Мес. 1", "Мес. 2", "Мес. 3"], ["Мес. 4", "Мес. 5", "Мес. 6"]];
+            return {
+              id: existingInitiative ? existingInitiative.id : newId(),
+              label: existingInitiative ? existingInitiative.label : `Инициатива ${ii + 1}`,
+              text: firstNonEmpty(iniRows, "Стратегическая инициатива"),
+              objectiveText: firstNonEmpty(iniRows, "Objective инициативы"),
+              objectiveOwner: resolveOwnerId(firstNonEmpty(iniRows, "Владелец Objective инициативы"), directory, newDirEntries),
+              krOutputs: outputNos.map((koNo, ki) => {
+                const koRows = outputGroups.get(koNo);
+                const existingOutput = existingInitiative && existingInitiative.krOutputs[ki];
+                const waveGroups = groupByNum(koRows, "Волна №");
 
-              const quarters = [0, 1].map((qi) => {
-                const qKey = qi === 0 ? "1-3" : "4-6";
-                const qRow = wRows.find((r) => normKey(r["Квартал (1-3 / 4-6)"]) === qKey);
-                const existingQuarter = existingWave && existingWave.quarters[qi];
+                const waves = [0, 1, 2].map((wi) => {
+                  const wRows = waveGroups.get(wi + 1) || [];
+                  const existingWave = existingOutput && existingOutput.waves[wi];
+                  const periodLabel = wi === 0 ? "1–6 мес из 18" : wi === 1 ? "7–12 мес из 18" : "13–18 мес из 18";
+                  const hasQuarterData = wRows.some((r) => String(r["Квартал (1-3 / 4-6)"] || "").trim() !== "");
+                  const qLabels = ["1–3 мес", "4–6 мес"];
+                  const monthLabelsFor = [["Мес. 1", "Мес. 2", "Мес. 3"], ["Мес. 4", "Мес. 5", "Мес. 6"]];
 
-                const monthlyKRs = [0, 1, 2].map((mi) => {
-                  const absMonth = qi * 3 + mi + 1;
-                  const monthTaskRows = uoTasks.filter(
-                    (r) => Number(r["KR Outcome №"]) === oNo && Number(r["KR Output №"]) === koNo &&
-                      Number(r["Волна №"]) === wi + 1 && Number(r["Месяц №"]) === absMonth
-                  );
-                  const existingMonth = existingQuarter && existingQuarter.monthlyKRs[mi];
-                  const taskEntries = monthTaskRows.filter((r) => String(r["Задача"] || "").trim() !== "");
-                  return {
-                    id: existingMonth ? existingMonth.id : newId(),
-                    label: monthLabelsFor[qi][mi],
-                    text: firstNonEmpty(monthTaskRows, "KR месяца"),
-                    tasks: taskEntries.map((r, ti) => {
-                      const existingTask = existingMonth && existingMonth.tasks[ti];
+                  const quarters = [0, 1].map((qi) => {
+                    const qKey = qi === 0 ? "1-3" : "4-6";
+                    const qRow = wRows.find((r) => normKey(r["Квартал (1-3 / 4-6)"]) === qKey);
+                    const existingQuarter = existingWave && existingWave.quarters[qi];
+
+                    const monthlyKRs = [0, 1, 2].map((mi) => {
+                      const absMonth = qi * 3 + mi + 1;
+                      const monthTaskRows = uoTasks.filter(
+                        (r) => Number(r["KR Outcome №"]) === oNo && Number(r["Инициатива №"] || 1) === iniNo &&
+                          Number(r["KR Output №"]) === koNo &&
+                          Number(r["Волна №"]) === wi + 1 && Number(r["Месяц №"]) === absMonth
+                      );
+                      const existingMonth = existingQuarter && existingQuarter.monthlyKRs[mi];
+                      const taskEntries = monthTaskRows.filter((r) => String(r["Задача"] || "").trim() !== "");
                       return {
-                        id: existingTask ? existingTask.id : newId(),
-                        text: r["Задача"] || "",
-                        ownerId: resolveOwnerId(r["Ответственный"], directory, newDirEntries),
+                        id: existingMonth ? existingMonth.id : newId(),
+                        label: monthLabelsFor[qi][mi],
+                        text: firstNonEmpty(monthTaskRows, "KR месяца"),
+                        tasks: taskEntries.map((r, ti) => {
+                          const existingTask = existingMonth && existingMonth.tasks[ti];
+                          return {
+                            id: existingTask ? existingTask.id : newId(),
+                            text: r["Задача"] || "",
+                            ownerId: resolveOwnerId(r["Ответственный"], directory, newDirEntries),
+                          };
+                        }),
                       };
-                    }),
+                    });
+
+                    return {
+                      id: existingQuarter ? existingQuarter.id : newId(),
+                      label: qLabels[qi],
+                      milestone: qRow ? (qRow["KR-веха квартала"] || "") : "",
+                      initiative3mo: qRow ? (qRow["Инициатива на 3 мес."] || "") : "",
+                      objective: qRow ? (qRow["Objective квартала"] || "") : "",
+                      objectiveOwner: resolveOwnerId(qRow ? qRow["Владелец Objective квартала"] : "", directory, newDirEntries),
+                      monthlyKRs,
+                    };
+                  });
+
+                  return {
+                    id: existingWave ? existingWave.id : newId(),
+                    periodLabel,
+                    status: hasQuarterData ? "decomposed" : "target",
+                    targetText: firstNonEmpty(wRows, "Цель-ориентир волны"),
+                    objective6mo: firstNonEmpty(wRows, "Objective на 6 мес."),
+                    objective6moOwner: resolveOwnerId(firstNonEmpty(wRows, "Владелец Objective 6 мес."), directory, newDirEntries),
+                    quarters,
                   };
                 });
 
                 return {
-                  id: existingQuarter ? existingQuarter.id : newId(),
-                  label: qLabels[qi],
-                  milestone: qRow ? (qRow["KR-веха квартала"] || "") : "",
-                  initiative3mo: qRow ? (qRow["Инициатива на 3 мес."] || "") : "",
-                  objective: qRow ? (qRow["Objective квартала"] || "") : "",
-                  objectiveOwner: resolveOwnerId(qRow ? qRow["Владелец Objective квартала"] : "", directory, newDirEntries),
-                  monthlyKRs,
+                  id: existingOutput ? existingOutput.id : newId(),
+                  label: existingOutput ? existingOutput.label : `KR_${ki + 1} OUTPUT`,
+                  text: firstNonEmpty(koRows, "KR Output"),
+                  waves,
                 };
-              });
-
-              return {
-                id: existingWave ? existingWave.id : newId(),
-                periodLabel,
-                status: hasQuarterData ? "decomposed" : "target",
-                targetText: firstNonEmpty(wRows, "Цель-ориентир волны"),
-                objective6mo: firstNonEmpty(wRows, "Objective на 6 мес."),
-                objective6moOwner: resolveOwnerId(firstNonEmpty(wRows, "Владелец Objective 6 мес."), directory, newDirEntries),
-                quarters,
-              };
-            });
-
-            return {
-              id: existingOutput ? existingOutput.id : newId(),
-              label: existingOutput ? existingOutput.label : `KR_${ki + 1} OUTPUT`,
-              text: firstNonEmpty(koRows, "KR Output"),
-              waves,
+              }),
             };
           }),
         };
@@ -2539,40 +2601,43 @@ function countFilled(track) {
     if (uo.text) filled++;
     if (uo.owner) filled++;
     uo.krOutcomes.forEach((o) => {
-      total += 5;
+      total += 2;
       if (o.text) filled++;
       if (o.metric) filled++;
-      if (o.initiativeText) filled++;
-      if (o.objectiveText) filled++;
-      if (o.objectiveOwner) filled++;
-      o.krOutputs.forEach((ko) => {
-        total += 1;
-        if (ko.text) filled++;
-        ko.waves.forEach((w) => {
-          if (w.status === "target") {
-            total += 1;
-            if (w.targetText) filled++;
-          } else {
-            total += 2;
-            if (w.objective6mo) filled++;
-            if (w.objective6moOwner) filled++;
-            w.quarters.forEach((q) => {
-              total += 4;
-              if (q.milestone) filled++;
-              if (q.initiative3mo) filled++;
-              if (q.objective) filled++;
-              if (q.objectiveOwner) filled++;
-              q.monthlyKRs.forEach((m) => {
-                total += 1;
-                if (m.text) filled++;
-                m.tasks.forEach((t) => {
-                  total += 2;
-                  if (t.text) filled++;
-                  if (t.ownerId) filled++;
+      o.initiatives.forEach((ini) => {
+        total += 3;
+        if (ini.text) filled++;
+        if (ini.objectiveText) filled++;
+        if (ini.objectiveOwner) filled++;
+        ini.krOutputs.forEach((ko) => {
+          total += 1;
+          if (ko.text) filled++;
+          ko.waves.forEach((w) => {
+            if (w.status === "target") {
+              total += 1;
+              if (w.targetText) filled++;
+            } else {
+              total += 2;
+              if (w.objective6mo) filled++;
+              if (w.objective6moOwner) filled++;
+              w.quarters.forEach((q) => {
+                total += 4;
+                if (q.milestone) filled++;
+                if (q.initiative3mo) filled++;
+                if (q.objective) filled++;
+                if (q.objectiveOwner) filled++;
+                q.monthlyKRs.forEach((m) => {
+                  total += 1;
+                  if (m.text) filled++;
+                  m.tasks.forEach((t) => {
+                    total += 2;
+                    if (t.text) filled++;
+                    if (t.ownerId) filled++;
+                  });
                 });
               });
-            });
-          }
+            }
+          });
         });
       });
     });
@@ -2592,8 +2657,11 @@ function waveHasContent(w) {
 function outputHasContent(ko) {
   return !!ko.text || ko.waves.some(waveHasContent);
 }
+function initiativeHasContent(ini) {
+  return !!ini.text || !!ini.objectiveText || ini.krOutputs.some(outputHasContent);
+}
 function outcomeHasContent(o) {
-  return !!o.text || !!o.metric || !!o.initiativeText || !!o.objectiveText || o.krOutputs.some(outputHasContent);
+  return !!o.text || !!o.metric || o.initiatives.some(initiativeHasContent);
 }
 function ultimateObjectiveHasContent(uo) {
   return !!uo.text || uo.krOutcomes.some(outcomeHasContent);
@@ -2981,7 +3049,7 @@ const TONES = {
 
 // Same tones as the track editor, indexed by Gantt row depth (0=Главная цель … 6=Задача) —
 // so the hierarchy reads the same way in the Gantt as it does in the editor.
-const GANTT_DEPTH_TONE = [TONES.mission, TONES.outcome, TONES.output, TONES.wave, TONES.quarter, TONES.month, TONES.task];
+const GANTT_DEPTH_TONE = [TONES.mission, TONES.outcome, TONES.initiative, TONES.output, TONES.wave, TONES.quarter, TONES.month, TONES.task];
 
 function OwnerPickerModal({ value, onChange, onClose, title }) {
   const t = useT();
@@ -3230,9 +3298,43 @@ function KROutputCard({ path, output }) {
   );
 }
 
+function InitiativeCard({ path, initiative, index, onRemove }) {
+  const t = useT();
+  const update = useUpdate();
+  return (
+    <Collapsible
+      title={`${t("Стратегическая инициатива")} ${index + 1} (18 ${t("мес.")})`} icon={<Layers size={13} />} tone={TONES.initiative}
+      right={onRemove && <button onClick={onRemove} className="text-neutral-300 hover:text-red-500 p-1"><Trash2 size={13} /></button>}
+    >
+      <div className="space-y-2">
+        <Field value={initiative.text} placeholder={t("Программа работ, обеспечивающая KR Outcome")}
+          onChange={(v) => update([...path, "text"], v)} />
+        <ObjectiveField
+          label={t("Objective")} labelColor="text-blue-700"
+          textPath={[...path, "objectiveText"]} ownerPath={[...path, "objectiveOwner"]}
+          text={initiative.objectiveText} ownerId={initiative.objectiveOwner}
+          placeholder={t("Цель инициативы")}
+        />
+        <div className="space-y-1.5 pt-1">
+          {initiative.krOutputs.map((ko, i) => (
+            <KROutputCard key={ko.id} path={[...path, "krOutputs", i]} output={ko} />
+          ))}
+        </div>
+      </div>
+    </Collapsible>
+  );
+}
+
 function KROutcomeCard({ path, outcome, onRemove }) {
   const t = useT();
   const update = useUpdate();
+  const addInitiative = () => {
+    if (outcome.initiatives.length >= MAX_INITIATIVES) return;
+    update([...path, "initiatives"], [...outcome.initiatives, createInitiative(outcome.initiatives.length + 1)]);
+  };
+  const removeInitiative = (id) => {
+    update([...path, "initiatives"], outcome.initiatives.filter((ini) => ini.id !== id));
+  };
   return (
     <Collapsible
       title={outcome.label} icon={<Flag size={14} />} tone={TONES.outcome}
@@ -3251,23 +3353,22 @@ function KROutcomeCard({ path, outcome, onRemove }) {
         </div>
         <TrackingSection tracking={outcome.tracking} onChange={(v) => update([...path, "tracking"], v)} horizonMonths={18} />
 
-        <Collapsible title={t("Стратегическая инициатива на 18 мес.")} icon={<Layers size={13} />} tone={TONES.initiative}>
-          <div className="space-y-2">
-            <Field value={outcome.initiativeText} placeholder={t("Программа работ, обеспечивающая KR Outcome")}
-              onChange={(v) => update([...path, "initiativeText"], v)} />
-            <ObjectiveField
-              label={t("Objective")} labelColor="text-blue-700"
-              textPath={[...path, "objectiveText"]} ownerPath={[...path, "objectiveOwner"]}
-              text={outcome.objectiveText} ownerId={outcome.objectiveOwner}
-              placeholder={t("Цель инициативы")}
+        <div className="space-y-2 pt-1">
+          {outcome.initiatives.map((ini, i) => (
+            <InitiativeCard
+              key={ini.id} path={[...path, "initiatives", i]} initiative={ini} index={i}
+              onRemove={outcome.initiatives.length > 1 ? () => removeInitiative(ini.id) : null}
             />
-            <div className="space-y-1.5 pt-1">
-              {outcome.krOutputs.map((ko, i) => (
-                <KROutputCard key={ko.id} path={[...path, "krOutputs", i]} output={ko} />
-              ))}
-            </div>
-          </div>
-        </Collapsible>
+          ))}
+        </div>
+        {outcome.initiatives.length < MAX_INITIATIVES && (
+          <button
+            onClick={addInitiative}
+            className="w-full flex items-center justify-center gap-1.5 text-xs text-emerald-700 border border-dashed border-emerald-300 rounded-lg py-2 hover:bg-emerald-50"
+          >
+            <Plus size={13} /> {t("Добавить инициативу")} ({outcome.initiatives.length}/{MAX_INITIATIVES})
+          </button>
+        )}
       </div>
     </Collapsible>
   );
@@ -3629,11 +3730,35 @@ function CombinedOutputBranch({ outputs, trackId, trackName }) {
   );
 }
 
+function CombinedInitiative({ initiative, index, trackId, trackName }) {
+  const t = useT();
+  const initiativeText = useDataT(initiative.text);
+  const outputs = initiative.krOutputs.filter(outputHasContent);
+  return (
+    <Collapsible
+      title={`${t("Стратегическая инициатива")} ${index + 1} (18 ${t("мес.")})`} subtitle={truncate(initiative.text, 36)}
+      icon={<Layers size={13} />} tone={TONES.initiative} defaultOpen={false}
+    >
+      <div className="space-y-2">
+        {initiative.text && <div className="text-sm text-neutral-800"><Truncated text={initiativeText} /></div>}
+        <StaticRow
+          label={t("Objective")} labelColor="text-blue-700" text={initiative.objectiveText} ownerId={initiative.objectiveOwner}
+          link={{ trackId, trackName, itemId: `${initiative.id}-init-objective`, itemLabel: `Objective инициативы — ${truncate(initiative.objectiveText)}` }}
+        />
+        {outputs.length > 0 && (
+          <div className="pt-1">
+            <CombinedOutputBranch outputs={outputs} trackId={trackId} trackName={trackName} />
+          </div>
+        )}
+      </div>
+    </Collapsible>
+  );
+}
+
 function CombinedOutcome({ outcome, trackId, trackName }) {
   const t = useT();
-  const initiativeText = useDataT(outcome.initiativeText);
   if (!outcomeHasContent(outcome)) return null;
-  const outputs = outcome.krOutputs.filter(outputHasContent);
+  const initiatives = outcome.initiatives.filter(initiativeHasContent);
   return (
     <Linkable link={{ trackId, trackName, itemId: outcome.id, itemLabel: `KR Outcome — ${truncate(outcome.text)}` }}>
       <Collapsible title={outcome.label} subtitle={truncate(outcome.text, 44)} icon={<Flag size={14} />} tone={TONES.outcome} defaultOpen={false}>
@@ -3644,25 +3769,9 @@ function CombinedOutcome({ outcome, trackId, trackName }) {
               <BarChart3 size={10} /> {outcome.metric}
             </span>
           )}
-          {(outcome.initiativeText || outcome.objectiveText || outputs.length > 0) && (
-            <Collapsible
-              title={t("Стратегическая инициатива на 18 мес.")} subtitle={truncate(outcome.initiativeText, 36)}
-              icon={<Layers size={13} />} tone={TONES.initiative} defaultOpen={false}
-            >
-              <div className="space-y-2">
-                {outcome.initiativeText && <div className="text-sm text-neutral-800"><Truncated text={initiativeText} /></div>}
-                <StaticRow
-                  label={t("Objective")} labelColor="text-blue-700" text={outcome.objectiveText} ownerId={outcome.objectiveOwner}
-                  link={{ trackId, trackName, itemId: `${outcome.id}-init-objective`, itemLabel: `Objective инициативы — ${truncate(outcome.objectiveText)}` }}
-                />
-                {outputs.length > 0 && (
-                  <div className="pt-1">
-                    <CombinedOutputBranch outputs={outputs} trackId={trackId} trackName={trackName} />
-                  </div>
-                )}
-              </div>
-            </Collapsible>
-          )}
+          {initiatives.map((ini, i) => (
+            <CombinedInitiative key={ini.id} initiative={ini} index={outcome.initiatives.indexOf(ini)} trackId={trackId} trackName={trackName} />
+          ))}
         </div>
       </Collapsible>
     </Linkable>
@@ -4748,13 +4857,14 @@ function useBitrixDraftRows() {
 }
 
 const IMPORT_EDIT_ROW_ID = {
-  mission: (p) => `uo-${p.uoId}`, initiative: (p) => `o-${p.outcomeId}`,
+  mission: (p) => `uo-${p.uoId}`, initiative: (p) => `ini-${p.initiativeId}`,
   wave: (p) => `w-${p.waveId}`, quarterInitiative: (p) => `q-${p.quarterId}`, month: (p) => `m-${p.monthId}`,
 };
 
 // Merges reviewed-but-not-yet-applied Bitrix rows into one track's already-built Gantt rows —
-// new tasks (and brand-new Главная цель / KR Outcome) get inserted as dashed "draft" rows;
-// everything else (filling text on a node that already exists) highlights that existing row.
+// new tasks (and brand-new Главная цель / KR Outcome / Стратегическая инициатива) get inserted
+// as dashed "draft" rows; everything else (filling text on a node that already exists)
+// highlights that existing row.
 function injectDraftRows(trackRows, drafts, trackId, trackName) {
   const relevant = drafts.filter((d) => d.trackId === trackId);
   if (relevant.length === 0) return trackRows;
@@ -4785,6 +4895,15 @@ function injectDraftRows(trackRows, drafts, trackId, trackName) {
       out.splice(idx >= 0 ? idx + 1 : out.length, 0, {
         id: `draft-${d.rowId}`, depth, guides: idx >= 0 ? [...out[idx].guides, false] : [], isLast: true, trackId, trackName,
         levelKey: "KR Outcome", levelExtra: "", title: text, start: todayISO(), end: todayISO(), tracked: false, draft: true,
+      });
+      return;
+    }
+    if (d.levelKey === "initiative" && d.path.initiativeId === "__new__") {
+      const idx = out.findIndex((r) => r.id === `o-${d.path.outcomeId}`);
+      const depth = idx >= 0 ? out[idx].depth + 1 : 2;
+      out.splice(idx >= 0 ? idx + 1 : out.length, 0, {
+        id: `draft-${d.rowId}`, depth, guides: idx >= 0 ? [...out[idx].guides, false] : [], isLast: true, trackId, trackName,
+        levelKey: "Стратегическая инициатива", levelExtra: "", title: text, start: todayISO(), end: todayISO(), tracked: false, draft: true,
       });
       return;
     }
@@ -4821,54 +4940,65 @@ function buildFullGanttRows(trackId, trackName, data, maxDepth) {
       rows.push({ id: `o-${o.id}`, depth: 1, guides: oGuides, isLast: oIsLast, trackId, trackName, levelKey: "KR Outcome", levelExtra: "", title: o.text || o.label, ...oRange });
       if (maxDepth < 2) return;
 
-      const outputs = o.krOutputs;
-      const koLastIdx = lastVisibleIndex(outputs, outputHasContent);
-      outputs.forEach((ko, ki) => {
-        if (!outputHasContent(ko)) return;
-        const koIsLast = ki === koLastIdx;
-        const koGuides = [...oGuides, !oIsLast];
-        const koRange = resolveRange(ko.tracking, rangeFromOffset(trackStart, 0, 18), 18);
-        rows.push({ id: `ko-${ko.id}`, depth: 2, guides: koGuides, isLast: koIsLast, trackId, trackName, levelKey: ko.label, levelExtra: "", title: ko.text, ...koRange });
+      const initiatives = o.initiatives;
+      const iniLastIdx = lastVisibleIndex(initiatives, initiativeHasContent);
+      initiatives.forEach((ini, ii) => {
+        if (!initiativeHasContent(ini)) return;
+        const iniIsLast = ii === iniLastIdx;
+        const iniGuides = [...oGuides, !oIsLast];
+        const iniRange = rangeFromOffset(trackStart, 0, 18);
+        rows.push({ id: `ini-${ini.id}`, depth: 2, guides: iniGuides, isLast: iniIsLast, trackId, trackName, levelKey: "Стратегическая инициатива", levelExtra: `${ii + 1}`, title: ini.text, ...iniRange, tracked: false });
         if (maxDepth < 3) return;
 
-        const waves = ko.waves;
-        const wLastIdx = lastVisibleIndex(waves, waveHasAnyContent);
-        waves.forEach((w, wi) => {
-          if (!waveHasAnyContent(w)) return;
-          const wIsLast = wi === wLastIdx;
-          const wGuides = [...koGuides, !koIsLast];
-          const wRange = rangeFromOffset(trackStart, wi * 6, 6);
-          rows.push({ id: `w-${w.id}`, depth: 3, guides: wGuides, isLast: wIsLast, trackId, trackName, levelKey: "Волна", levelExtra: `${wi + 1}`, title: w.status === "decomposed" ? (w.objective6mo || "") : w.targetText, start: wRange.start, end: wRange.end, tracked: false });
-          if (maxDepth < 4 || w.status !== "decomposed") return;
+        const outputs = ini.krOutputs;
+        const koLastIdx = lastVisibleIndex(outputs, outputHasContent);
+        outputs.forEach((ko, ki) => {
+          if (!outputHasContent(ko)) return;
+          const koIsLast = ki === koLastIdx;
+          const koGuides = [...iniGuides, !iniIsLast];
+          const koRange = resolveRange(ko.tracking, rangeFromOffset(trackStart, 0, 18), 18);
+          rows.push({ id: `ko-${ko.id}`, depth: 3, guides: koGuides, isLast: koIsLast, trackId, trackName, levelKey: ko.label, levelExtra: "", title: ko.text, ...koRange });
+          if (maxDepth < 4) return;
 
-          const quarters = w.quarters;
-          const qLastIdx = lastVisibleIndex(quarters, quarterHasContent);
-          quarters.forEach((q, qi) => {
-            if (!quarterHasContent(q)) return;
-            const qIsLast = qi === qLastIdx;
-            const qGuides = [...wGuides, !wIsLast];
-            const qStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3, 3);
-            const qRange = resolveRange(q.tracking, qStructural, 3);
-            rows.push({ id: `q-${q.id}`, depth: 4, guides: qGuides, isLast: qIsLast, trackId, trackName, levelKey: "Квартал", levelExtra: q.label, title: q.milestone || "", ...qRange });
-            if (maxDepth < 5) return;
+          const waves = ko.waves;
+          const wLastIdx = lastVisibleIndex(waves, waveHasAnyContent);
+          waves.forEach((w, wi) => {
+            if (!waveHasAnyContent(w)) return;
+            const wIsLast = wi === wLastIdx;
+            const wGuides = [...koGuides, !koIsLast];
+            const wRange = rangeFromOffset(trackStart, wi * 6, 6);
+            rows.push({ id: `w-${w.id}`, depth: 4, guides: wGuides, isLast: wIsLast, trackId, trackName, levelKey: "Волна", levelExtra: `${wi + 1}`, title: w.status === "decomposed" ? (w.objective6mo || "") : w.targetText, start: wRange.start, end: wRange.end, tracked: false });
+            if (maxDepth < 5 || w.status !== "decomposed") return;
 
-            const months = q.monthlyKRs;
-            const mLastIdx = lastVisibleIndex(months, monthHasContent);
-            months.forEach((m, mi) => {
-              if (!monthHasContent(m)) return;
-              const mIsLast = mi === mLastIdx;
-              const mGuides = [...qGuides, !qIsLast];
-              const mStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3 + mi, 1);
-              const mRange = resolveRange(m.tracking, mStructural, 1);
-              rows.push({ id: `m-${m.id}`, depth: 5, guides: mGuides, isLast: mIsLast, trackId, trackName, levelKey: "KR месяца", levelExtra: m.label, title: m.text || "", ...mRange });
+            const quarters = w.quarters;
+            const qLastIdx = lastVisibleIndex(quarters, quarterHasContent);
+            quarters.forEach((q, qi) => {
+              if (!quarterHasContent(q)) return;
+              const qIsLast = qi === qLastIdx;
+              const qGuides = [...wGuides, !wIsLast];
+              const qStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3, 3);
+              const qRange = resolveRange(q.tracking, qStructural, 3);
+              rows.push({ id: `q-${q.id}`, depth: 5, guides: qGuides, isLast: qIsLast, trackId, trackName, levelKey: "Квартал", levelExtra: q.label, title: q.milestone || "", ...qRange });
               if (maxDepth < 6) return;
 
-              const tasks = m.tasks.filter((tk) => !!tk.text);
-              tasks.forEach((tk, ti) => {
-                const tIsLast = ti === tasks.length - 1;
-                const tGuides = [...mGuides, !mIsLast];
-                const point = taskPointDate(mStructural.start, mStructural.end, ti, tasks.length);
-                rows.push({ id: `tk-${tk.id}`, depth: 6, guides: tGuides, isLast: tIsLast, trackId, trackName, levelKey: "Задача", levelExtra: "", title: tk.text, start: point, end: point, tracked: false, isTask: true });
+              const months = q.monthlyKRs;
+              const mLastIdx = lastVisibleIndex(months, monthHasContent);
+              months.forEach((m, mi) => {
+                if (!monthHasContent(m)) return;
+                const mIsLast = mi === mLastIdx;
+                const mGuides = [...qGuides, !qIsLast];
+                const mStructural = rangeFromOffset(trackStart, wi * 6 + qi * 3 + mi, 1);
+                const mRange = resolveRange(m.tracking, mStructural, 1);
+                rows.push({ id: `m-${m.id}`, depth: 6, guides: mGuides, isLast: mIsLast, trackId, trackName, levelKey: "KR месяца", levelExtra: m.label, title: m.text || "", ...mRange });
+                if (maxDepth < 7) return;
+
+                const tasks = m.tasks.filter((tk) => !!tk.text);
+                tasks.forEach((tk, ti) => {
+                  const tIsLast = ti === tasks.length - 1;
+                  const tGuides = [...mGuides, !mIsLast];
+                  const point = taskPointDate(mStructural.start, mStructural.end, ti, tasks.length);
+                  rows.push({ id: `tk-${tk.id}`, depth: 7, guides: tGuides, isLast: tIsLast, trackId, trackName, levelKey: "Задача", levelExtra: "", title: tk.text, start: point, end: point, tracked: false, isTask: true });
+                });
               });
             });
           });
@@ -4887,10 +5017,11 @@ function collectTrackers(trackId, trackName, data, directory) {
     if (o.tracking) {
       items.push({
         key: `outcome-${o.id}`, trackId, trackName, level: "KR Outcome (18 мес.)",
-        title: o.text || o.label, owner: ownerNameById(directory, o.objectiveOwner), tracking: o.tracking, horizonMonths: 18,
+        title: o.text || o.label, owner: "", tracking: o.tracking, horizonMonths: 18,
       });
     }
-    (o.krOutputs || []).forEach((ko) => {
+    (o.initiatives || []).forEach((ini) => {
+    (ini.krOutputs || []).forEach((ko) => {
       if (ko.tracking) {
         items.push({
           key: `output-${ko.id}`, trackId, trackName, level: `${ko.label} (18 мес.)`,
@@ -4918,6 +5049,7 @@ function collectTrackers(trackId, trackName, data, directory) {
     });
   });
   });
+  });
   return items;
 }
 
@@ -4927,8 +5059,11 @@ function quarterHasTracking(q) {
 function outputHasTracking(ko) {
   return !!ko.tracking || (ko.waves || []).some((w) => (w.quarters || []).some(quarterHasTracking));
 }
+function initiativeHasTracking(ini) {
+  return (ini.krOutputs || []).some(outputHasTracking);
+}
 function outcomeHasTracking(o) {
-  return !!o.tracking || (o.krOutputs || []).some(outputHasTracking);
+  return !!o.tracking || (o.initiatives || []).some(initiativeHasTracking);
 }
 function ultimateObjectiveHasTracking(uo) {
   return (uo.krOutcomes || []).some(outcomeHasTracking);
@@ -5003,16 +5138,31 @@ function DashboardOutput({ output }) {
   );
 }
 
+function DashboardInitiative({ initiative }) {
+  const t = useT();
+  const directory = useDirectoryList();
+  if (!initiativeHasTracking(initiative)) return null;
+  const outputs = (initiative.krOutputs || []).filter(outputHasTracking);
+  return (
+    <DashboardNode
+      level={`${t("Стратегическая инициатива")} · 18 ${t("мес.")}`} title={initiative.text || initiative.label}
+      owner={ownerNameById(directory, initiative.objectiveOwner)} horizonMonths={18} borderColor="#fde68a"
+    >
+      {outputs.map((ko) => <DashboardOutput key={ko.id} output={ko} />)}
+    </DashboardNode>
+  );
+}
+
 function DashboardOutcome({ outcome, directory }) {
   const t = useT();
   if (!outcomeHasTracking(outcome)) return null;
-  const outputs = (outcome.krOutputs || []).filter(outputHasTracking);
+  const initiatives = (outcome.initiatives || []).filter(initiativeHasTracking);
   return (
     <DashboardNode
       level={`KR Outcome · 18 ${t("мес.")}`} title={outcome.text || outcome.label}
-      owner={ownerNameById(directory, outcome.objectiveOwner)} tracking={outcome.tracking} horizonMonths={18} borderColor="#fde68a"
+      owner="" tracking={outcome.tracking} horizonMonths={18} borderColor="#fde68a"
     >
-      {outputs.map((ko) => <DashboardOutput key={ko.id} output={ko} />)}
+      {initiatives.map((ini) => <DashboardInitiative key={ini.id} initiative={ini} />)}
     </DashboardNode>
   );
 }
@@ -5038,11 +5188,12 @@ function TreeGutter({ depth, guides, isLast }) {
 const GANTT_DEPTH_LEVELS = [
   { value: 0, key: "Главные цели" },
   { value: 1, key: "KR Outcome" },
-  { value: 2, key: "KR Output" },
-  { value: 3, key: "Волны" },
-  { value: 4, key: "Кварталы" },
-  { value: 5, key: "Месяцы" },
-  { value: 6, key: "Задачи" },
+  { value: 2, key: "Инициативы" },
+  { value: 3, key: "KR Output" },
+  { value: 4, key: "Волны" },
+  { value: 5, key: "Кварталы" },
+  { value: 6, key: "Месяцы" },
+  { value: 7, key: "Задачи" },
 ];
 
 function GanttChart() {
@@ -5050,7 +5201,7 @@ function GanttChart() {
   const [tracksData, loaded] = useAllTracksData();
   const [drafts, draftsLoaded] = useBitrixDraftRows();
   const [trackFilter, setTrackFilter] = useState("");
-  const [maxDepth, setMaxDepth] = useState(6);
+  const [maxDepth, setMaxDepth] = useState(7);
 
   if (!loaded) {
     return <div className="text-sm text-neutral-400 py-12 text-center">{t("Загрузка…")}</div>;
@@ -5139,7 +5290,7 @@ function GanttChart() {
       {depthControl}
 
       <div className="flex items-center gap-4 t11 flex-wrap justify-center">
-        {["Главная цель", "KR Outcome", "KR Output", "Волна", "Квартал", "KR месяца", "Задача"].map((key, i) => {
+        {["Главная цель", "KR Outcome", "Стратегическая инициатива", "KR Output", "Волна", "Квартал", "KR месяца", "Задача"].map((key, i) => {
           const tone = GANTT_DEPTH_TONE[i];
           return (
             <span
@@ -5984,15 +6135,16 @@ function guessTrackFromTags(tags) {
   return "";
 }
 
-// Depth = how many cascading pickers (UO → KR Outcome → KR Output → Волна → Квартал → Месяц)
-// are needed to pin down where this level lives in the tree.
+// Each level names the exact chain of path fields needed to pin it down in the tree — used by
+// pathIsComplete/TargetPicker/HierarchyTree instead of a magic "depth" number, since Initiative
+// now sits as its own real level (not a field living directly on KR Outcome).
 const IMPORT_LEVELS = [
-  { key: "mission", label: "Главная цель", depth: 1 },
-  { key: "initiative", label: "Стратегическая инициатива", depth: 2 },
-  { key: "wave", label: "Objective волны (6 мес.)", depth: 4 },
-  { key: "quarterInitiative", label: "Инициатива квартала (3 мес.)", depth: 5 },
-  { key: "month", label: "KR месяца", depth: 6 },
-  { key: "task", label: "Задача", depth: 6 },
+  { key: "mission", label: "Главная цель", fields: ["uoId"] },
+  { key: "initiative", label: "Стратегическая инициатива", fields: ["uoId", "outcomeId", "initiativeId"] },
+  { key: "wave", label: "Objective волны (6 мес.)", fields: ["uoId", "outcomeId", "initiativeId", "outputId", "waveId"] },
+  { key: "quarterInitiative", label: "Инициатива квартала (3 мес.)", fields: ["uoId", "outcomeId", "initiativeId", "outputId", "waveId", "quarterId"] },
+  { key: "month", label: "KR месяца", fields: ["uoId", "outcomeId", "initiativeId", "outputId", "waveId", "quarterId", "monthId"] },
+  { key: "task", label: "Задача", fields: ["uoId", "outcomeId", "initiativeId", "outputId", "waveId", "quarterId", "monthId"] },
 ];
 function guessImportLevel(rawText) {
   const s = rawText.toLowerCase();
@@ -6011,16 +6163,18 @@ function findTaskByBitrixId(trackData, bitrixTaskId) {
   if (!bitrixTaskId) return null;
   for (const uo of trackData.ultimateObjectives) {
     for (const o of uo.krOutcomes) {
-      for (const ko of o.krOutputs) {
-        for (const w of ko.waves) {
-          for (const q of w.quarters) {
-            for (const m of q.monthlyKRs) {
-              const task = m.tasks.find((tk) => tk.bitrixId && tk.bitrixId === bitrixTaskId);
-              if (task) {
-                return {
-                  task,
-                  path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: m.id },
-                };
+      for (const ini of o.initiatives) {
+        for (const ko of ini.krOutputs) {
+          for (const w of ko.waves) {
+            for (const q of w.quarters) {
+              for (const m of q.monthlyKRs) {
+                const task = m.tasks.find((tk) => tk.bitrixId && tk.bitrixId === bitrixTaskId);
+                if (task) {
+                  return {
+                    task,
+                    path: { uoId: uo.id, outcomeId: o.id, initiativeId: ini.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: m.id },
+                  };
+                }
               }
             }
           }
@@ -6049,9 +6203,11 @@ function detectFieldConflict(trackData, levelKey, path) {
   if (levelKey === "mission") return uo && uo.text ? uo.text : null;
   if (path.uoId === "__new__" || !uo) return null;
   const outcome = uo.krOutcomes.find((o) => o.id === path.outcomeId);
-  if (levelKey === "initiative") return outcome && outcome.initiativeText ? outcome.initiativeText : null;
   if (path.outcomeId === "__new__" || !outcome) return null;
-  const output = outcome.krOutputs.find((k) => k.id === path.outputId);
+  const initiative = outcome.initiatives.find((i) => i.id === path.initiativeId);
+  if (levelKey === "initiative") return initiative && initiative.text ? initiative.text : null;
+  if (path.initiativeId === "__new__" || !initiative) return null;
+  const output = initiative.krOutputs.find((k) => k.id === path.outputId);
   const wave = output && output.waves.find((w) => w.id === path.waveId);
   if (levelKey === "wave") return wave && wave.objective6mo ? wave.objective6mo : null;
   if (!wave) return null;
@@ -6066,7 +6222,8 @@ function detectFieldConflict(trackData, levelKey, path) {
 function detectTaskDuplicate(trackData, path, text) {
   const uo = trackData.ultimateObjectives.find((u) => u.id === path.uoId);
   const outcome = uo && uo.krOutcomes.find((o) => o.id === path.outcomeId);
-  const output = outcome && outcome.krOutputs.find((k) => k.id === path.outputId);
+  const initiative = outcome && outcome.initiatives.find((i) => i.id === path.initiativeId);
+  const output = initiative && initiative.krOutputs.find((k) => k.id === path.outputId);
   const wave = output && output.waves.find((w) => w.id === path.waveId);
   const quarter = wave && wave.quarters.find((q) => q.id === path.quarterId);
   const month = quarter && quarter.monthlyKRs.find((m) => m.id === path.monthId);
@@ -6076,18 +6233,12 @@ function detectTaskDuplicate(trackData, path, text) {
 }
 
 function emptyTargetPath() {
-  return { uoId: "", outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" };
+  return { uoId: "", outcomeId: "", initiativeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" };
 }
 function pathIsComplete(levelKey, path) {
   const level = IMPORT_LEVELS.find((l) => l.key === levelKey);
-  const depth = level ? level.depth : 6;
-  if (depth >= 1 && !path.uoId) return false;
-  if (depth >= 2 && !path.outcomeId) return false;
-  if (depth >= 4 && !path.outputId) return false;
-  if (depth >= 4 && !path.waveId) return false;
-  if (depth >= 5 && !path.quarterId) return false;
-  if (depth >= 6 && !path.monthId) return false;
-  return true;
+  const fields = level ? level.fields : ["uoId", "outcomeId", "initiativeId", "outputId", "waveId", "quarterId", "monthId"];
+  return fields.every((f) => !!path[f]);
 }
 // Writes one reviewed Bitrix row into a (cloned) track's data tree. Returns null if the
 // chosen placement no longer resolves (e.g. hit a cap) so the caller can skip it safely.
@@ -6116,15 +6267,25 @@ function applyImportRow(trackData, levelKey, path, text, bitrixTaskId) {
     outcome = uo.krOutcomes.find((o) => o.id === path.outcomeId);
   }
   if (!outcome) return null;
+
+  let initiative;
+  if (path.initiativeId === "__new__") {
+    if (outcome.initiatives.length >= MAX_INITIATIVES) return null;
+    initiative = createInitiative(outcome.initiatives.length + 1);
+    outcome.initiatives.push(initiative);
+  } else {
+    initiative = outcome.initiatives.find((i) => i.id === path.initiativeId);
+  }
+  if (!initiative) return null;
   if (levelKey === "initiative") {
-    outcome.initiativeText =
-      outcome.initiativeText && outcome.initiativeText.trim() && outcome.initiativeText.trim() !== text.trim()
-        ? outcome.initiativeText + IMPORT_FIELD_CONFLICT_MARKER + text
+    initiative.text =
+      initiative.text && initiative.text.trim() && initiative.text.trim() !== text.trim()
+        ? initiative.text + IMPORT_FIELD_CONFLICT_MARKER + text
         : text;
     return data;
   }
 
-  const output = outcome.krOutputs.find((k) => k.id === path.outputId);
+  const output = initiative.krOutputs.find((k) => k.id === path.outputId);
   if (!output) return null;
   const wave = output.waves.find((w) => w.id === path.waveId);
   if (!wave) return null;
@@ -6212,7 +6373,8 @@ function TreeNode({ code, tone, title, subtitle, selectable, selected, onSelect,
 
 function HierarchyTree({ trackData, levelKey, path, onPick, matchQuery }) {
   const t = useT();
-  const depth = (IMPORT_LEVELS.find((l) => l.key === levelKey) || {}).depth || 6;
+  const fields = (IMPORT_LEVELS.find((l) => l.key === levelKey) || {}).fields || [];
+  const need = (f) => fields.includes(f);
   const q = (matchQuery || "").trim().toLowerCase();
   const hit = (s) => !q || (s || "").toLowerCase().includes(q);
   const sel = (id, key) => path[key] === id;
@@ -6225,53 +6387,64 @@ function HierarchyTree({ trackData, levelKey, path, onPick, matchQuery }) {
           <TreeNode
             key={uo.id} tone={TONES.mission} title={`${uo.label}${uoText ? " — " + truncate(uoText, 60) : ""}`}
             defaultOpen={!q || hit(uoText)}
-            selectable={depth === 1} selected={sel(uo.id, "uoId")}
-            onSelect={() => onPick({ uoId: uo.id, outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" })}
+            selectable={fields.length === 1 && need("uoId")} selected={sel(uo.id, "uoId")}
+            onSelect={() => onPick({ ...emptyTargetPath(), uoId: uo.id })}
           >
-            {depth >= 2 && uo.krOutcomes.map((o) => {
+            {need("outcomeId") && uo.krOutcomes.map((o) => {
               const oText = o.text || "";
               return (
                 <TreeNode
                   key={o.id} tone={TONES.outcome} title={`${o.label}${oText ? " — " + truncate(oText, 60) : ""}`}
                   defaultOpen={!q || hit(oText)}
-                  selectable={depth === 2} selected={sel(o.id, "outcomeId")}
-                  onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: "", waveId: "", quarterId: "", monthId: "" })}
+                  selectable={false}
                 >
-                  {depth >= 4 && o.krOutputs.map((ko) => (
-                    <TreeNode key={ko.id} tone={TONES.output} title={ko.label} subtitle={ko.text ? truncate(ko.text, 60) : ""} defaultOpen={!q}>
-                      {ko.waves.map((w, wi) => {
-                        const wText = w.objective6mo || "";
-                        return (
-                          <TreeNode
-                            key={w.id} tone={TONES.wave} title={`${t("Волна")} ${wi + 1}`} subtitle={wText ? truncate(wText, 60) : ""}
-                            defaultOpen={!q || hit(wText)}
-                            selectable={depth === 4} selected={sel(w.id, "waveId")}
-                            onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: "", monthId: "" })}
-                          >
-                            {depth >= 5 && w.quarters.map((qt) => {
-                              const qText = qt.initiative3mo || qt.milestone || "";
+                  {need("initiativeId") && o.initiatives.map((ini, ii) => {
+                    const iniText = ini.text || "";
+                    return (
+                      <TreeNode
+                        key={ini.id} tone={TONES.initiative} title={`${t("Инициатива")} ${ii + 1}`} subtitle={iniText ? truncate(iniText, 60) : ""}
+                        defaultOpen={!q || hit(iniText)}
+                        selectable={fields.length === 3} selected={sel(ini.id, "initiativeId")}
+                        onSelect={() => onPick({ ...emptyTargetPath(), uoId: uo.id, outcomeId: o.id, initiativeId: ini.id })}
+                      >
+                        {need("outputId") && ini.krOutputs.map((ko) => (
+                          <TreeNode key={ko.id} tone={TONES.output} title={ko.label} subtitle={ko.text ? truncate(ko.text, 60) : ""} defaultOpen={!q}>
+                            {ko.waves.map((w, wi) => {
+                              const wText = w.objective6mo || "";
                               return (
                                 <TreeNode
-                                  key={qt.id} tone={TONES.quarter} title={`${t("Квартал")} ${qt.label}`} subtitle={qText ? truncate(qText, 60) : ""}
-                                  defaultOpen={!q || hit(qText)}
-                                  selectable={depth === 5} selected={sel(qt.id, "quarterId")}
-                                  onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: qt.id, monthId: "" })}
+                                  key={w.id} tone={TONES.wave} title={`${t("Волна")} ${wi + 1}`} subtitle={wText ? truncate(wText, 60) : ""}
+                                  defaultOpen={!q || hit(wText)}
+                                  selectable={fields.length === 5} selected={sel(w.id, "waveId")}
+                                  onSelect={() => onPick({ ...emptyTargetPath(), uoId: uo.id, outcomeId: o.id, initiativeId: ini.id, outputId: ko.id, waveId: w.id })}
                                 >
-                                  {depth >= 6 && qt.monthlyKRs.map((m) => (
-                                    <TreeNode
-                                      key={m.id} tone={TONES.month} title={m.label} subtitle={m.text ? truncate(m.text, 60) : ""}
-                                      selectable={depth === 6} selected={sel(m.id, "monthId")}
-                                      onSelect={() => onPick({ uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: qt.id, monthId: m.id })}
-                                    />
-                                  ))}
+                                  {need("quarterId") && w.quarters.map((qt) => {
+                                    const qText = qt.initiative3mo || qt.milestone || "";
+                                    return (
+                                      <TreeNode
+                                        key={qt.id} tone={TONES.quarter} title={`${t("Квартал")} ${qt.label}`} subtitle={qText ? truncate(qText, 60) : ""}
+                                        defaultOpen={!q || hit(qText)}
+                                        selectable={fields.length === 6} selected={sel(qt.id, "quarterId")}
+                                        onSelect={() => onPick({ ...emptyTargetPath(), uoId: uo.id, outcomeId: o.id, initiativeId: ini.id, outputId: ko.id, waveId: w.id, quarterId: qt.id })}
+                                      >
+                                        {need("monthId") && qt.monthlyKRs.map((m) => (
+                                          <TreeNode
+                                            key={m.id} tone={TONES.month} title={m.label} subtitle={m.text ? truncate(m.text, 60) : ""}
+                                            selectable={fields.length === 7} selected={sel(m.id, "monthId")}
+                                            onSelect={() => onPick({ ...emptyTargetPath(), uoId: uo.id, outcomeId: o.id, initiativeId: ini.id, outputId: ko.id, waveId: w.id, quarterId: qt.id, monthId: m.id })}
+                                          />
+                                        ))}
+                                      </TreeNode>
+                                    );
+                                  })}
                                 </TreeNode>
                               );
                             })}
                           </TreeNode>
-                        );
-                      })}
-                    </TreeNode>
-                  ))}
+                        ))}
+                      </TreeNode>
+                    );
+                  })}
                 </TreeNode>
               );
             })}
@@ -6313,20 +6486,22 @@ function HierarchyBrowserModal({ trackData, levelKey, path, rowText, bitrixTaskI
 function TargetPicker({ trackData, levelKey, path, onChange }) {
   const t = useT();
   const level = IMPORT_LEVELS.find((l) => l.key === levelKey);
-  const depth = level ? level.depth : 6;
+  const fields = level ? level.fields : ["uoId", "outcomeId", "initiativeId", "outputId", "waveId", "quarterId", "monthId"];
+  const need = (f) => fields.includes(f);
   const uo = trackData.ultimateObjectives.find((u) => u.id === path.uoId);
   const outcome = uo && uo.krOutcomes.find((o) => o.id === path.outcomeId);
-  const output = outcome && outcome.krOutputs.find((k) => k.id === path.outputId);
+  const initiative = outcome && outcome.initiatives.find((i) => i.id === path.initiativeId);
+  const output = initiative && initiative.krOutputs.find((k) => k.id === path.outputId);
   const wave = output && output.waves.find((w) => w.id === path.waveId);
   const quarter = wave && wave.quarters.find((q) => q.id === path.quarterId);
-  const set = (patch) => onChange({ ...path, ...patch });
+  const set = (patch) => onChange({ ...emptyTargetPath(), ...path, ...patch });
   const selCls = "text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white";
 
   return (
     <div className="flex flex-wrap gap-1.5">
       <select
         value={path.uoId} className={selCls}
-        onChange={(e) => set({ uoId: e.target.value, outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" })}
+        onChange={(e) => set({ uoId: e.target.value, outcomeId: "", initiativeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" })}
       >
         <option value="">{t("Главная цель…")}</option>
         {trackData.ultimateObjectives.map((u) => (
@@ -6335,42 +6510,61 @@ function TargetPicker({ trackData, levelKey, path, onChange }) {
         {trackData.ultimateObjectives.length < MAX_ULTIMATE_OBJECTIVES && <option value="__new__">+ {t("новая Главная цель")}</option>}
       </select>
 
-      {depth >= 2 && path.uoId && path.uoId !== "__new__" && (
+      {need("outcomeId") && path.uoId && path.uoId !== "__new__" && (
         <select
           value={path.outcomeId} className={selCls}
-          onChange={(e) => set({ outcomeId: e.target.value, outputId: "", waveId: "", quarterId: "", monthId: "" })}
+          onChange={(e) => set({ outcomeId: e.target.value, initiativeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" })}
         >
           <option value="">{t("KR Outcome…")}</option>
           {uo && uo.krOutcomes.map((o) => <option key={o.id} value={o.id}>{o.label}{o.text ? " — " + truncate(o.text, 30) : ""}</option>)}
           {uo && uo.krOutcomes.length < MAX_KR_OUTCOMES && <option value="__new__">+ {t("новый KR Outcome")}</option>}
         </select>
       )}
-      {depth >= 2 && path.uoId === "__new__" && (
+      {need("outcomeId") && path.uoId === "__new__" && (
         <span className="t11 text-neutral-400 self-center">{t("KR Outcome появится после создания цели")}</span>
       )}
 
-      {depth >= 4 && path.outcomeId && path.outcomeId !== "__new__" && (
-        <select value={path.outputId} className={selCls} onChange={(e) => set({ outputId: e.target.value, waveId: "", quarterId: "", monthId: "" })}>
-          <option value="">{t("KR Output…")}</option>
-          {outcome && outcome.krOutputs.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+      {need("initiativeId") && path.outcomeId && path.outcomeId !== "__new__" && (
+        <select
+          value={path.initiativeId} className={selCls}
+          onChange={(e) => set({ initiativeId: e.target.value, outputId: "", waveId: "", quarterId: "", monthId: "" })}
+        >
+          <option value="">{t("Стратегическая инициатива…")}</option>
+          {outcome && outcome.initiatives.map((ini, i) => (
+            <option key={ini.id} value={ini.id}>{t("Инициатива")} {i + 1}{ini.text ? " — " + truncate(ini.text, 30) : ""}</option>
+          ))}
+          {outcome && outcome.initiatives.length < MAX_INITIATIVES && <option value="__new__">+ {t("новая инициатива")}</option>}
         </select>
       )}
+      {need("initiativeId") && path.outcomeId === "__new__" && (
+        <span className="t11 text-neutral-400 self-center">{t("Инициатива появится после создания KR Outcome")}</span>
+      )}
 
-      {depth >= 4 && path.outputId && (
+      {need("outputId") && path.initiativeId && path.initiativeId !== "__new__" && (
+        <select value={path.outputId} className={selCls} onChange={(e) => set({ outputId: e.target.value, waveId: "", quarterId: "", monthId: "" })}>
+          <option value="">{t("KR Output…")}</option>
+          {initiative && initiative.krOutputs.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+        </select>
+      )}
+      {need("outputId") && path.initiativeId === "__new__" && (
+        <span className="t11 text-neutral-400 self-center">{t("KR Output появится после создания инициативы")}</span>
+      )}
+
+      {need("waveId") && path.outputId && (
         <select value={path.waveId} className={selCls} onChange={(e) => set({ waveId: e.target.value, quarterId: "", monthId: "" })}>
           <option value="">{t("Волна…")}</option>
           {output && output.waves.map((w, i) => <option key={w.id} value={w.id}>{t("Волна")} {i + 1}</option>)}
         </select>
       )}
 
-      {depth >= 5 && path.waveId && (
+      {need("quarterId") && path.waveId && (
         <select value={path.quarterId} className={selCls} onChange={(e) => set({ quarterId: e.target.value, monthId: "" })}>
           <option value="">{t("Квартал…")}</option>
           {wave && wave.quarters.map((q) => <option key={q.id} value={q.id}>{t("Квартал")} {q.label}</option>)}
         </select>
       )}
 
-      {depth >= 6 && path.quarterId && (
+      {need("monthId") && path.quarterId && (
         <select value={path.monthId} className={selCls} onChange={(e) => set({ monthId: e.target.value })}>
           <option value="">{t("Месяц…")}</option>
           {quarter && quarter.monthlyKRs.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
