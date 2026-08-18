@@ -164,6 +164,19 @@ const EN_DICT = {
   "применить всё равно (добавить рядом)": "apply anyway (add alongside)",
   "Похожая задача уже есть в этом месяце": "A similar task already exists in this month",
   "Сейчас там:": "Currently there:",
+  "Выберите место в дереве трека": "Choose a spot in the track's tree",
+  "Поиск по дереву…": "Search the tree…",
+  "Обзор дерева": "Browse tree",
+  "место подставлено по коду": "placement filled in from the code",
+  "Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги», «№ заявки».":
+    "Bitrix24 task export file (.xls) — columns \u201cName\u201d, \u201cDeadline\u201d, \u201cTags\u201d, \u201cTask #\u201d.",
+  "Совет: добавьте в выгрузку колонку с номером задачи Bitrix (ID / № заявки) — после того как вы один раз разместите задачу вручную, её номер сохранится, и при повторном импорте того же файла приложение само узнает эту задачу и не предложит разместить её ещё раз.":
+    "Tip: include a column with the Bitrix task number (ID / task #) in the export — once you place a task by hand, its number is saved, and re-importing the same file later will recognize that task automatically instead of asking you to place it again.",
+  "уже импортирована по ID": "already imported (matched by ID)",
+  "Уже в дереве без изменений — можно пропустить.": "Already in the tree, unchanged — can be skipped.",
+  "В дереве сейчас другой текст:": "The tree currently has different text:",
+  "если в Bitrix задачу переименовали, отметьте чекбокс, чтобы дописать новый текст рядом.":
+    "if the task was renamed in Bitrix, check the box to append the new text alongside.",
   "Ответственный": "Owner",
   "Назначить ответственного": "Assign owner",
   "Ответственный за задачу": "Task owner",
@@ -5687,6 +5700,7 @@ function parseBitrixExport(text) {
     name: header.findIndex((h) => h.includes("назв")),
     deadline: header.findIndex((h) => h.includes("срок") || h.includes("дедлайн")),
     tags: header.findIndex((h) => h.includes("тег")),
+    bitrixId: header.findIndex((h) => h.includes("id") || h.includes("заявк") || h.includes("№")),
   };
   const out = [];
   rows.slice(1).forEach((r, i) => {
@@ -5697,7 +5711,8 @@ function parseBitrixExport(text) {
     const deadline = idx.deadline >= 0 ? cells[idx.deadline] : "";
     const tagsCell = idx.tags >= 0 ? cells[idx.tags] : "";
     const tags = tagsCell.split(",").map((s) => s.replace(/^#/, "").trim()).filter(Boolean);
-    out.push({ rowId: `bx_${i}_${newId()}`, rawText, deadline, tags });
+    const bitrixTaskId = idx.bitrixId >= 0 ? cells[idx.bitrixId] : "";
+    out.push({ rowId: `bx_${i}_${newId()}`, rawText, deadline, tags, bitrixTaskId });
   });
   return out;
 }
@@ -5737,6 +5752,33 @@ function guessImportLevel(rawText) {
   if (s.includes("objective на 3 мес") || s.includes("объектив квартала")) return "quarterInitiative";
   if (s.includes("стратегическая миссия трека")) return "skip";
   return "task";
+}
+
+// Finds an already-imported task by its Bitrix task ID — walks every month of every branch in
+// the track. Used so re-importing the same (or an updated) Bitrix export recognizes tasks that
+// were already brought in before, instead of relying on fuzzy text matching or manual re-placement.
+function findTaskByBitrixId(trackData, bitrixTaskId) {
+  if (!bitrixTaskId) return null;
+  for (const uo of trackData.ultimateObjectives) {
+    for (const o of uo.krOutcomes) {
+      for (const ko of o.krOutputs) {
+        for (const w of ko.waves) {
+          for (const q of w.quarters) {
+            for (const m of q.monthlyKRs) {
+              const task = m.tasks.find((tk) => tk.bitrixId && tk.bitrixId === bitrixTaskId);
+              if (task) {
+                return {
+                  task,
+                  path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: m.id },
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return null;
 }
 
 // ---- Conflict handling: never silently overwrite existing content. If the target already
@@ -5799,7 +5841,7 @@ function pathIsComplete(levelKey, path) {
 }
 // Writes one reviewed Bitrix row into a (cloned) track's data tree. Returns null if the
 // chosen placement no longer resolves (e.g. hit a cap) so the caller can skip it safely.
-function applyImportRow(trackData, levelKey, path, text) {
+function applyImportRow(trackData, levelKey, path, text, bitrixTaskId) {
   const data = JSON.parse(JSON.stringify(trackData));
   let uo;
   if (path.uoId === "__new__") {
@@ -5866,10 +5908,88 @@ function applyImportRow(trackData, levelKey, path, text) {
   if (levelKey === "task") {
     if (month.tasks.length >= MAX_TASKS) return null;
     const isDup = detectTaskDuplicate(data, path, text);
-    month.tasks.push({ id: newId(), text: isDup ? IMPORT_TASK_DUPLICATE_PREFIX + text : text, ownerId: "" });
+    month.tasks.push({ id: newId(), text: isDup ? IMPORT_TASK_DUPLICATE_PREFIX + text : text, ownerId: "", bitrixId: bitrixTaskId || "" });
     return data;
   }
   return null;
+}
+
+// Flat, searchable list of every valid placement for a given level — each entry shows the
+// real breadcrumb (Главная цель › KR Outcome › … ) with the actual live text at each step,
+// so browsing feels like browsing the track itself, not guessing through blind dropdowns.
+function buildPlacementOptions(trackData, levelKey, t) {
+  const level = IMPORT_LEVELS.find((l) => l.key === levelKey);
+  const depth = level ? level.depth : 6;
+  const options = [];
+  trackData.ultimateObjectives.forEach((uo) => {
+    const uoLabel = `${uo.label}${uo.text ? " — " + truncate(uo.text, 40) : ""}`;
+    if (depth === 1) {
+      options.push({ crumb: uoLabel, path: { uoId: uo.id, outcomeId: "", outputId: "", waveId: "", quarterId: "", monthId: "" } });
+      return;
+    }
+    uo.krOutcomes.forEach((o) => {
+      const oLabel = `${uoLabel} › ${o.label}${o.text ? " — " + truncate(o.text, 40) : ""}`;
+      if (depth === 2) {
+        options.push({ crumb: oLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: "", waveId: "", quarterId: "", monthId: "" } });
+        return;
+      }
+      o.krOutputs.forEach((ko) => {
+        const koLabel = `${oLabel} › ${ko.label}`;
+        ko.waves.forEach((w, wi) => {
+          const wLabel = `${koLabel} › ${t("Волна")} ${wi + 1}${w.objective6mo ? " — " + truncate(w.objective6mo, 40) : ""}`;
+          if (depth === 4) {
+            options.push({ crumb: wLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: "", monthId: "" } });
+            return;
+          }
+          w.quarters.forEach((q) => {
+            const qLabel = `${wLabel} › ${t("Квартал")} ${q.label}${q.initiative3mo ? " — " + truncate(q.initiative3mo, 40) : ""}`;
+            if (depth === 5) {
+              options.push({ crumb: qLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: "" } });
+              return;
+            }
+            q.monthlyKRs.forEach((m) => {
+              const mLabel = `${qLabel} › ${m.label}${m.text ? " — " + truncate(m.text, 30) : ""}`;
+              options.push({ crumb: mLabel, path: { uoId: uo.id, outcomeId: o.id, outputId: ko.id, waveId: w.id, quarterId: q.id, monthId: m.id } });
+            });
+          });
+        });
+      });
+    });
+  });
+  return options;
+}
+
+function HierarchyBrowserModal({ trackData, levelKey, onPick, onClose }) {
+  const t = useT();
+  const [query, setQuery] = useState("");
+  const options = buildPlacementOptions(trackData, levelKey, t);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? options.filter((o) => o.crumb.toLowerCase().includes(q)) : options;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-4 w-full max-w-xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="text-sm font-semibold text-neutral-800 mb-2">{t("Выберите место в дереве трека")}</div>
+        <input
+          autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("Поиск по дереву…")}
+          className="text-sm border border-neutral-200 rounded-md px-2.5 py-1.5 mb-2 outline-none focus:border-neutral-400"
+        />
+        <div className="overflow-y-auto space-y-1 flex-1">
+          {filtered.length === 0 && <div className="text-xs text-neutral-400 py-4 text-center">{t("Ничего не найдено")}</div>}
+          {filtered.map((o, i) => (
+            <button
+              key={i}
+              onClick={() => onPick(o.path)}
+              className="w-full text-left text-xs rounded-lg px-2.5 py-1.5 border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50"
+            >
+              {o.crumb}
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} className="w-full text-xs text-neutral-400 hover:text-neutral-600 pt-2 shrink-0">{t("Отмена")}</button>
+      </div>
+    </div>
+  );
 }
 
 function TargetPicker({ trackData, levelKey, path, onChange }) {
@@ -5987,6 +6107,26 @@ function BitrixImportModule() {
     })();
   }, [rows, tracksCache]);
 
+  // Once a row's track finishes loading, check whether this exact Bitrix task was already
+  // imported before (matched by its Bitrix ID, not by guessing) — if so, pre-fill its known
+  // location and mark it so the review list shows "already imported" instead of prompting
+  // the person to place it again from scratch.
+  useEffect(() => {
+    setRows((rs) => {
+      let changed = false;
+      const next = rs.map((r) => {
+        if (r.idChecked || !r.bitrixTaskId || !r.trackId) return r;
+        const trackData = tracksCache[r.trackId];
+        if (!trackData) return r;
+        changed = true;
+        const match = findTaskByBitrixId(trackData, r.bitrixTaskId);
+        if (!match) return { ...r, idChecked: true };
+        return { ...r, idChecked: true, path: match.path, alreadyImportedText: match.task.text, include: false };
+      });
+      return changed ? next : rs;
+    });
+  }, [tracksCache]);
+
   const handleFile = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
@@ -6001,10 +6141,13 @@ function BitrixImportModule() {
         const guess = guessImportLevel(p.rawText);
         return {
           rowId: p.rowId, rawText: p.rawText, editedText: p.rawText, deadline: p.deadline,
+          bitrixTaskId: p.bitrixTaskId || "",
           trackId, levelKey: guess === "skip" ? "task" : guess,
           include: guess !== "skip",
           path: emptyTargetPath(),
           forceApply: false,
+          idChecked: false,
+          alreadyImportedText: "",
         };
       });
       setRows(newRows);
@@ -6049,7 +6192,7 @@ function BitrixImportModule() {
       readyRows.forEach((r) => {
         const base = byTrack[r.trackId] || tracksCache[r.trackId];
         if (!base) return;
-        const next = applyImportRow(base, r.levelKey, r.path, r.editedText || r.rawText);
+        const next = applyImportRow(base, r.levelKey, r.path, r.editedText || r.rawText, r.bitrixTaskId);
         if (next) { byTrack[r.trackId] = next; appliedIds.push(r.rowId); }
       });
       const trackIds = Object.keys(byTrack);
@@ -6077,7 +6220,10 @@ function BitrixImportModule() {
         <div>
           <div className="text-sm font-medium text-neutral-800">{t("Импорт задач из Bitrix24")}</div>
           <div className="text-xs text-neutral-400 mt-0.5">
-            {t("Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги».")}
+            {t("Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги», «№ заявки».")}
+          </div>
+          <div className="t11 text-sky-700 mt-1">
+            {t("Совет: добавьте в выгрузку колонку с номером задачи Bitrix (ID / № заявки) — после того как вы один раз разместите задачу вручную, её номер сохранится, и при повторном импорте того же файла приложение само узнает эту задачу и не предложит разместить её ещё раз.")}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -6148,7 +6294,13 @@ function BitrixImportModule() {
                           <option value="">{t("Трек…")}</option>
                           {TRACKS.map((tr) => <option key={tr.id} value={tr.id}>{tr.name}</option>)}
                         </select>
+                        {r.bitrixTaskId && <span className="t11 text-neutral-400">№ {r.bitrixTaskId}</span>}
                         {r.deadline && <span className="t11 text-neutral-400">{t("срок")} {r.deadline}</span>}
+                        {r.alreadyImportedText && (
+                          <span className="t11 text-sky-700 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5">
+                            {t("уже импортирована по ID")}
+                          </span>
+                        )}
                         {!complete && (
                           <span className="t11 text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
                             {t("не размещено")}
@@ -6169,6 +6321,13 @@ function BitrixImportModule() {
                         </button>
                       </div>
                       <Field small value={r.editedText} onChange={(v) => updateRow(r.rowId, { editedText: v })} placeholder={t("Текст")} />
+                      {r.alreadyImportedText && (
+                        <div className="t11 text-sky-700 bg-sky-50 border border-sky-200 rounded-md px-2 py-1">
+                          {r.alreadyImportedText.trim() === (r.editedText || r.rawText).trim()
+                            ? t("Уже в дереве без изменений — можно пропустить.")
+                            : <>{t("В дереве сейчас другой текст:")} «<Truncated text={r.alreadyImportedText} limit={90} />» — {t("если в Bitrix задачу переименовали, отметьте чекбокс, чтобы дописать новый текст рядом.")}</>}
+                        </div>
+                      )}
                       {fieldConflict && (
                         <div className="t11 text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-2 py-1 flex items-center justify-between gap-2 flex-wrap">
                           <span>{t("Сейчас там:")} «<Truncated text={fieldConflict} limit={90} />»</span>
@@ -6197,10 +6356,26 @@ function BitrixImportModule() {
                           {IMPORT_LEVELS.map((l) => <option key={l.key} value={l.key}>{t(l.label)}</option>)}
                         </select>
                         {r.trackId && trackData && (
-                          <TargetPicker
-                            trackData={trackData} levelKey={r.levelKey} path={r.path}
-                            onChange={(p) => updateRow(r.rowId, { path: p, forceApply: false })}
-                          />
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => updateRow(r.rowId, { browsing: true })}
+                              className="flex items-center gap-1 text-xs border border-neutral-200 rounded-md px-2 py-1 bg-white hover:bg-neutral-50"
+                            >
+                              <Eye size={12} /> {t("Обзор дерева")}
+                            </button>
+                            <TargetPicker
+                              trackData={trackData} levelKey={r.levelKey} path={r.path}
+                              onChange={(p) => updateRow(r.rowId, { path: p, forceApply: false })}
+                            />
+                            {r.browsing && (
+                              <HierarchyBrowserModal
+                                trackData={trackData} levelKey={r.levelKey}
+                                onPick={(p) => updateRow(r.rowId, { path: p, forceApply: false, browsing: false })}
+                                onClose={() => updateRow(r.rowId, { browsing: false })}
+                              />
+                            )}
+                          </>
                         )}
                         {r.trackId && !trackData && <span className="t11 text-neutral-400">{t("Загрузка трека…")}</span>}
                       </div>
