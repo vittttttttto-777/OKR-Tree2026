@@ -160,6 +160,19 @@ const EN_DICT = {
   "Добавлено: ": "Added: ",
   "Не удалось сохранить: ": "Couldn't save: ",
   "Справочник функций редактирует администратор": "The functions directory is edited by the administrator",
+  "Верхний уровень": "Top level",
+  "Функциональная (Global)": "Functional (Global)",
+  "Дивизиональная (Local)": "Divisional (Local)",
+  "Excel с листом «Справочник» (колонки Функция / Типы функции / Место в Иерархии / Роль / Задачи / Отвечает за) — или просто список названий в один столбец.":
+    "Excel with a \u201cСправочник\u201d sheet (columns Функция / Типы функции / Место в Иерархии / Роль / Задачи / Отвечает за) — or just a single column of names.",
+  "не нашёл ни одной функции в файле": "couldn't find any functions in the file",
+  "уровень определён автоматически:": "level auto-detected for:",
+  "В файле было:": "The file had:",
+  "не нашёл точного совпадения, выберите уровень вручную.": "no exact match found — please choose the level by hand.",
+  "Тип функции": "Function type",
+  "Роль в иерархии управления": "Role in the management hierarchy",
+  "Задачи функции": "Function's tasks",
+  "Отвечает за": "Responsible for",
   "Импорт задач из Bitrix24": "Import tasks from Bitrix24",
   "Файл экспорта задач из Bitrix24 (.xls) — колонки «Название», «Крайний срок», «Теги».":
     "Bitrix24 task export file (.xls) — columns \u201cName\u201d, \u201cDeadline\u201d, \u201cTags\u201d.",
@@ -6741,23 +6754,44 @@ const TYPE_COLOR = {
   function: "bg-teal-100 text-teal-700",
 };
 
-// ---- Company Functions directory: two parallel org hierarchies (functional + divisional),
-// 5 levels each, per the company's official structure rules. Each entry picks exactly one
-// of these 10 levels — the level implies both which hierarchy it belongs to and its depth.
+// ---- Company Functions directory ----
+// Level list is the company's own official glossary ("Правила и Иерархия уровней"), not a
+// generic guess — each level carries its exact spreadsheet label (so imports can auto-match
+// against it), the management role title, and the governance-council rule that comes with it.
 const FUNCTION_LEVELS = [
-  { key: "directorate", group: "functional", order: 1, label: "Дирекция", hint: "Курирует несколько департаментов" },
-  { key: "department", group: "functional", order: 2, label: "Департамент", hint: "4+ отделов, от 35 человек" },
-  { key: "division_service", group: "functional", order: 3, label: "Управление / служба", hint: "Объединяет несколько отделов" },
-  { key: "unit", group: "functional", order: 4, label: "Отдел", hint: "3–30 человек, узкая специализация" },
-  { key: "sector", group: "functional", order: 5, label: "Сектор / группа", hint: "Внутри отдела" },
-  { key: "cluster", group: "divisional", order: 1, label: "Кластер дивизионального управления (L0/L1)", hint: "Член СД / лидер кластера — обязательный член совета" },
-  { key: "division", group: "divisional", order: 2, label: "Дивизион (L1)", hint: "Руководитель дивизиона — может войти в совет" },
-  { key: "country_group", group: "divisional", order: 3, label: "Группа стран (L2)", hint: "Руководитель группы стран — замещает, но не входит" },
-  { key: "country", group: "divisional", order: 4, label: "Страна (L3)", hint: "Руководитель страны — может быть приглашён" },
-  { key: "region", group: "divisional", order: 5, label: "Регион (L4)", hint: "Руководитель региона — входит в операционный совет" },
+  { key: "l0", group: "top", label: "Управление компанией (L-0)", role: "Генеральный директор (ALL) (L-0)", rule: "Обязательный участник Стратегического совета" },
+  { key: "g_l1", group: "functional", label: "Класстер управления департаментами (G) (L1)", role: "Член Совета Директоров (G) (L1)", rule: "Может быть приглашённым гостем в Стратегический совет" },
+  { key: "g_l2", group: "functional", label: "Департамент/Дирекция (G)(L2)", role: "Директор функции (G) (L2)", rule: "Может входить в Стратегический совет, если влияет на продажи" },
+  { key: "g_l3", group: "functional", label: "Группа отделов (G) (L3)", role: "Заместитель директора функции (G) (L3)", rule: "Может замещать на время отсутствия руководителя, входит в Совет по улучшениям" },
+  { key: "g_l4", group: "functional", label: "Отдел (G) (L4)", role: "Руководитель отдела (G) (L4)", rule: "Не входит в Страт. совет, но может приглашаться в Совет по улучшениям" },
+  { key: "l_l0l1", group: "divisional", label: "Класстер Дивизионального управления (L) (L0\\L1)", role: "Член Совета Директоров / Лидер бизнес-кластера (G\\L) (L0\\L1)", rule: "Обязательный член Стратегического совета" },
+  { key: "l_l1", group: "divisional", label: "Дивизион (L) (L1)", role: "Руководитель дивизиона (L) (L1)", rule: "Может входить в Стратегический совет (вопрос полномочий и влияния)" },
+  { key: "l_l2", group: "divisional", label: "Группа стран (L)(L2)", role: "Руководитель группы стран (L) (L2)", rule: "Может замещать на время отсутствия руководителя, входит в Совет по улучшениям" },
+  { key: "l_l3", group: "divisional", label: "Страна (L)(L3)", role: "Руководитель страны (L) (L3)", rule: "Не входит в Страт. совет, но может приглашаться в Совет по улучшениям" },
+  { key: "l_l4_region", group: "divisional", label: "Регион (L) (L4)", role: "Руководитель региона страны (где применимо) (L) (L4)", rule: "Входит в Операционный совет" },
+  { key: "l_l4_unit", group: "divisional", label: "Отдел (L) (L4)", role: "Руководитель отдела (L) (L4)", rule: "" },
 ];
-const FUNCTION_GROUP_LABEL = { functional: "Функциональная иерархия", divisional: "Дивизиональная (географическая) иерархия" };
+const FUNCTION_GROUP_LABEL = { top: "Верхний уровень", functional: "Функциональная (Global)", divisional: "Дивизиональная (Local)" };
 function functionLevel(key) { return FUNCTION_LEVELS.find((l) => l.key === key); }
+function normFn(s) { return (s || "").toString().replace(/\s+/g, " ").trim(); }
+function matchFunctionLevel(raw) {
+  const n = normFn(raw).toLowerCase();
+  if (!n) return "";
+  const found = FUNCTION_LEVELS.find((l) => normFn(l.label).toLowerCase() === n);
+  return found ? found.key : "";
+}
+
+// "Типы функции" is a second, independent classification (how the function relates to sales) —
+// not a hierarchy level. Kept as free-form text matched against known values when possible.
+const FUNCTION_TYPES = [
+  "Явно влияет на продажи", "Отвечает за продажи", "Сопровождает функции продаж",
+  "косвенно влияет на продажи", "Надзорная функция", "Обслуживающая функция",
+];
+function matchFunctionType(raw) {
+  const n = normFn(raw).toLowerCase();
+  const found = FUNCTION_TYPES.find((ft) => ft.toLowerCase() === n);
+  return found || normFn(raw);
+}
 
 function CompanyFunctionsModule() {
   const t = useT();
@@ -6768,8 +6802,9 @@ function CompanyFunctionsModule() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [newName, setNewName] = useState("");
-  const [newLevel, setNewLevel] = useState(FUNCTION_LEVELS[3].key);
+  const [newLevel, setNewLevel] = useState(FUNCTION_LEVELS[4].key);
   const [filterGroup, setFilterGroup] = useState("");
+  const [expandedId, setExpandedId] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -6799,19 +6834,46 @@ function CompanyFunctionsModule() {
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
-      const firstSheet = wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1, defval: "" });
-      const names = [];
-      rows.forEach((r) => {
-        const cell = (r[0] || "").toString().trim();
-        if (!cell) return;
-        const low = cell.toLowerCase();
-        if (low === "название" || low === "название функции" || low === "name") return;
-        names.push(cell);
+      // Prefer a sheet that actually has a "Функция" header; fall back to the first sheet.
+      let sheetName = wb.SheetNames.find((n) => {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: "", range: 0 });
+        const header = (rows[0] || []).map((c) => normFn(c).toLowerCase());
+        return header.some((h) => h.startsWith("функци"));
       });
-      if (names.length === 0) throw new Error(t("не нашёл названий в первом столбце файла"));
-      setDraft(names.map((name) => ({ rowId: newId(), name, levelKey: "" })));
-      setMessage(t("Загружено строк: ") + names.length);
+      if (!sheetName) sheetName = wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
+      const header = (rows[0] || []).map((c) => normFn(c).toLowerCase());
+      const idx = {
+        name: header.findIndex((h) => h.startsWith("функци")),
+        type: header.findIndex((h) => h.includes("тип")),
+        level: header.findIndex((h) => h.includes("иерарх") && !h.includes("роль")),
+        role: header.findIndex((h) => h.includes("роль")),
+        tasks: header.findIndex((h) => h.includes("задач")),
+        responsible: header.findIndex((h) => h.includes("отвечает")),
+      };
+      // No recognizable header at all → treat column A as plain names (old simple-list format).
+      const simpleList = idx.name === -1;
+      const nameCol = simpleList ? 0 : idx.name;
+      const parsed = [];
+      rows.slice(1).forEach((r) => {
+        const name = normFn(r[nameCol]);
+        if (!name) return;
+        const rawLevel = idx.level >= 0 ? r[idx.level] : "";
+        const rawType = idx.type >= 0 ? r[idx.type] : "";
+        parsed.push({
+          rowId: newId(), name,
+          levelKey: matchFunctionLevel(rawLevel),
+          levelRaw: normFn(rawLevel),
+          functionType: idx.type >= 0 ? matchFunctionType(rawType) : "",
+          role: idx.role >= 0 ? normFn(r[idx.role]) : "",
+          tasks: idx.tasks >= 0 ? normFn(r[idx.tasks]) : "",
+          responsibleFor: idx.responsible >= 0 ? normFn(r[idx.responsible]) : "",
+        });
+      });
+      if (parsed.length === 0) throw new Error(t("не нашёл ни одной функции в файле"));
+      setDraft(parsed);
+      const matched = parsed.filter((r) => r.levelKey).length;
+      setMessage(t("Загружено строк: ") + parsed.length + (simpleList ? "" : ` · ${t("уровень определён автоматически:")} ${matched}`));
     } catch (err) {
       setMessage(t("Не удалось прочитать файл: ") + err.message);
     }
@@ -6824,7 +6886,10 @@ function CompanyFunctionsModule() {
 
   const applyDraft = () => {
     if (readyDraft.length === 0) return;
-    const added = readyDraft.map((r) => ({ id: newId(), name: r.name, levelKey: r.levelKey }));
+    const added = readyDraft.map((r) => ({
+      id: newId(), name: r.name, levelKey: r.levelKey, functionType: r.functionType || "",
+      role: r.role || "", tasks: r.tasks || "", responsibleFor: r.responsibleFor || "",
+    }));
     const appliedIds = new Set(readyDraft.map((r) => r.rowId));
     persist([...items, ...added]);
     setDraft((rs) => rs.filter((r) => !appliedIds.has(r.rowId)));
@@ -6833,7 +6898,7 @@ function CompanyFunctionsModule() {
 
   const addOne = () => {
     if (!newName.trim()) return;
-    persist([...items, { id: newId(), name: newName.trim(), levelKey: newLevel }]);
+    persist([...items, { id: newId(), name: newName.trim(), levelKey: newLevel, functionType: "", role: "", tasks: "", responsibleFor: "" }]);
     setNewName("");
   };
   const updateItem = (id, patch) => persist(items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
@@ -6841,6 +6906,17 @@ function CompanyFunctionsModule() {
     if (!window.confirm(t("Удалить эту функцию из справочника?"))) return;
     persist(items.filter((it) => it.id !== id));
   };
+
+  const LevelSelect = ({ value, onChange, className }) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={className || "text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[240px]"}>
+      <option value="">{t("Уровень…")}</option>
+      {["top", "functional", "divisional"].map((g) => (
+        <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
+          {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => <option key={l.key} value={l.key}>{l.label}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  );
 
   const grouped = FUNCTION_LEVELS
     .filter((l) => !filterGroup || l.group === filterGroup)
@@ -6854,7 +6930,7 @@ function CompanyFunctionsModule() {
         <div>
           <div className="text-sm font-medium text-neutral-800">{t("Справочник функций компании")}</div>
           <div className="text-xs text-neutral-400 mt-0.5">
-            {t("Excel с одним столбцом названий — дальше вручную назначите каждой строке уровень в иерархии.")}
+            {t("Excel с листом «Справочник» (колонки Функция / Типы функции / Место в Иерархии / Роль / Задачи / Отвечает за) — или просто список названий в один столбец.")}
           </div>
         </div>
         <button
@@ -6870,7 +6946,7 @@ function CompanyFunctionsModule() {
 
       {draft.length > 0 && (
         <div className="border border-amber-200 rounded-xl p-3 space-y-2">
-          <div className="flex items-center justify-between t11 text-neutral-500">
+          <div className="flex items-center justify-between t11 text-neutral-500 flex-wrap gap-2">
             <span>{t("На проверке:")} {readyDraft.length} {t("из")} {draft.length} {t("готовы (уровень выбран)")}</span>
             <button
               onClick={applyDraft} disabled={readyDraft.length === 0}
@@ -6879,27 +6955,22 @@ function CompanyFunctionsModule() {
               <CheckCircle2 size={13} /> {t("Добавить в справочник")}
             </button>
           </div>
-          <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
+          <div className="space-y-1.5 max-h-[55vh] overflow-y-auto">
             {draft.map((r) => (
-              <div key={r.rowId} className={`flex items-center gap-2 rounded-lg border p-2 ${r.levelKey ? "border-neutral-200" : "border-amber-200"}`}>
-                <span className="text-sm flex-1 min-w-0 break-words">{r.name}</span>
-                <select
-                  value={r.levelKey}
-                  onChange={(e) => updateDraftRow(r.rowId, { levelKey: e.target.value })}
-                  className="text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[220px]"
-                >
-                  <option value="">{t("Уровень…")}</option>
-                  {["functional", "divisional"].map((g) => (
-                    <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
-                      {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => (
-                        <option key={l.key} value={l.key}>{t(l.label)}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-                <button onClick={() => removeDraftRow(r.rowId)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
-                  <Trash2 size={12} />
-                </button>
+              <div key={r.rowId} className={`rounded-lg border p-2 ${r.levelKey ? "border-neutral-200" : "border-amber-200"}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm flex-1 min-w-0 break-words">{r.name}</span>
+                  {r.functionType && <span className="t10 text-neutral-400 shrink-0 max-w-[160px] truncate" title={r.functionType}>{r.functionType}</span>}
+                  <LevelSelect value={r.levelKey} onChange={(v) => updateDraftRow(r.rowId, { levelKey: v })} />
+                  <button onClick={() => removeDraftRow(r.rowId)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                {!r.levelKey && r.levelRaw && (
+                  <div className="t10 text-amber-700 mt-1">
+                    {t("В файле было:")} «{r.levelRaw}» — {t("не нашёл точного совпадения, выберите уровень вручную.")}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -6915,15 +6986,7 @@ function CompanyFunctionsModule() {
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addOne()}
           />
-          <select value={newLevel} onChange={(e) => setNewLevel(e.target.value)} className="text-sm border border-neutral-200 rounded-md px-1.5 max-w-[220px]">
-            {["functional", "divisional"].map((g) => (
-              <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
-                {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => (
-                  <option key={l.key} value={l.key}>{t(l.label)}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          <LevelSelect value={newLevel} onChange={setNewLevel} className="text-sm border border-neutral-200 rounded-md px-1.5 max-w-[240px]" />
           <button onClick={addOne} className="px-2.5 rounded-md bg-neutral-900 text-white text-sm hover:bg-neutral-800 shrink-0">
             <Plus size={14} />
           </button>
@@ -6936,7 +6999,7 @@ function CompanyFunctionsModule() {
           >
             {t("Все")} ({items.length})
           </button>
-          {["functional", "divisional"].map((g) => (
+          {["top", "functional", "divisional"].map((g) => (
             <button
               key={g}
               onClick={() => setFilterGroup(g)}
@@ -6955,32 +7018,39 @@ function CompanyFunctionsModule() {
           <div className="space-y-3">
             {grouped.map(({ level, entries }) => entries.length > 0 && (
               <div key={level.key}>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="t11 font-medium px-1.5 py-0.5 rounded" style={{ background: level.group === "functional" ? "#EEF2FF" : "#ECFDF5", color: level.group === "functional" ? "#3730A3" : "#065F46" }}>
-                    {t(level.label)}
+                <div className="mb-1">
+                  <span
+                    className="t11 font-medium px-1.5 py-0.5 rounded inline-block"
+                    style={{ background: level.group === "top" ? "#FEF3C7" : level.group === "functional" ? "#EEF2FF" : "#ECFDF5", color: level.group === "top" ? "#92400E" : level.group === "functional" ? "#3730A3" : "#065F46" }}
+                  >
+                    {level.label}
                   </span>
-                  <span className="t10 text-neutral-400">{t(level.hint)}</span>
+                  <span className="t10 text-neutral-400 ml-1.5">{level.role}{level.rule ? " — " + level.rule : ""}</span>
                 </div>
                 <div className="space-y-1">
                   {entries.map((it) => (
-                    <div key={it.id} className="flex items-center gap-2 pl-1">
-                      <Field small value={it.name} onChange={(v) => updateItem(it.id, { name: v })} />
-                      <select
-                        value={it.levelKey}
-                        onChange={(e) => updateItem(it.id, { levelKey: e.target.value })}
-                        className="text-xs border border-neutral-200 rounded-md px-1.5 py-1 bg-white shrink-0 max-w-[200px]"
-                      >
-                        {["functional", "divisional"].map((g) => (
-                          <optgroup key={g} label={t(FUNCTION_GROUP_LABEL[g])}>
-                            {FUNCTION_LEVELS.filter((l) => l.group === g).map((l) => (
-                              <option key={l.key} value={l.key}>{t(l.label)}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                      <button onClick={() => removeItem(it.id)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
-                        <Trash2 size={12} />
-                      </button>
+                    <div key={it.id} className="rounded-md hover:bg-neutral-50 pl-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setExpandedId(expandedId === it.id ? "" : it.id)}
+                          className="text-neutral-300 hover:text-neutral-600 shrink-0"
+                        >
+                          {expandedId === it.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        </button>
+                        <Field small value={it.name} onChange={(v) => updateItem(it.id, { name: v })} />
+                        <LevelSelect value={it.levelKey} onChange={(v) => updateItem(it.id, { levelKey: v })} />
+                        <button onClick={() => removeItem(it.id)} className="text-neutral-300 hover:text-red-500 p-0.5 shrink-0">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                      {expandedId === it.id && (
+                        <div className="pl-6 pb-2 pt-1 space-y-1.5">
+                          <Field small value={it.functionType || ""} placeholder={t("Тип функции")} onChange={(v) => updateItem(it.id, { functionType: v })} />
+                          <Field small value={it.role || ""} placeholder={t("Роль в иерархии управления")} onChange={(v) => updateItem(it.id, { role: v })} />
+                          <Field small multiline value={it.tasks || ""} placeholder={t("Задачи функции")} onChange={(v) => updateItem(it.id, { tasks: v })} />
+                          <Field small multiline value={it.responsibleFor || ""} placeholder={t("Отвечает за")} onChange={(v) => updateItem(it.id, { responsibleFor: v })} />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
