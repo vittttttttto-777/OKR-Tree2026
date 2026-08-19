@@ -4,7 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import {
   ChevronDown, ChevronRight, Plus, Trash2, Target, Flag,
   Layers, CalendarRange, ListChecks, CheckCircle2, Circle, Sparkles, Users, User, Network, Briefcase, Search,
-  Download, Upload, Activity, BarChart3, PieChart, ShieldCheck, FileUp, Eye
+  Download, Upload, Activity, BarChart3, PieChart, ShieldCheck, FileUp, Eye, Maximize2, Minimize2
 } from "lucide-react";
 
 // ---- Language toggle (RU / EN) — translates app UI chrome; user-entered content stays as typed ----
@@ -163,6 +163,9 @@ const EN_DICT = {
   "Не удалось загрузить трек — размещение недоступно": "Couldn't load the track — placement unavailable",
   "Не удалось загрузить данные трека — ничего не сохранено и не потеряно.": "Couldn't load the track's data — nothing was saved or lost.",
   "Повторить": "Retry",
+  "Раздел": "Section",
+  "Развернуть": "Expand",
+  "Свернуть": "Collapse",
   "Не удалось загрузить справочник функций — ничего не сохранено и не потеряно.": "Couldn't load the functions directory — nothing was saved or lost.",
   "Инициатива": "Initiative",
   "Инициативы": "Initiatives",
@@ -3381,6 +3384,7 @@ function TrackEditor({ trackId }) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [reloadTick, setReloadTick] = useState(0);
+  const [fullscreen, setFullscreen] = useFullscreenToggle();
   const dirtyRef = useRef(false);
 
   useEffect(() => {
@@ -3485,10 +3489,11 @@ function TrackEditor({ trackId }) {
 
   return (
     <UpdateCtx.Provider value={update}>
-      <div className="space-y-3">
+      <div className={fullscreen ? "fixed inset-0 z-50 bg-white overflow-auto p-4 space-y-3" : "space-y-3"}>
         <div className="flex items-center gap-2 px-1">
           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: trackColor }} />
           <span className="text-sm font-semibold" style={{ color: trackColor }}>{trackName}</span>
+          <FullscreenButton full={fullscreen} onToggle={() => setFullscreen((f) => !f)} className="ml-auto flex items-center gap-1 px-2.5 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-xs shrink-0" />
         </div>
         <div className="flex items-center justify-between px-1">
           <div className="text-xs text-neutral-400">{t("Заполнено полей")}: {filled} / {total}</div>
@@ -4117,6 +4122,34 @@ function useConnectorLines(links) {
   return { stageRef, registerRef, paths, recompute };
 }
 
+// Toggles a full-viewport overlay for a module — CSS-based (fixed inset-0), not the browser's
+// native Fullscreen API, since that's unreliable on iOS Safari and inside some embedding
+// contexts. Esc key closes it, same as native fullscreen would.
+function useFullscreenToggle() {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e) => { if (e.key === "Escape") setFull(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [full]);
+  return [full, setFull];
+}
+function FullscreenButton({ full, onToggle, className }) {
+  const t = useT();
+  return (
+    <button
+      onClick={onToggle}
+      className={
+        className ||
+        "flex items-center gap-1 px-2.5 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-xs"
+      }
+    >
+      {full ? <Minimize2 size={13} /> : <Maximize2 size={13} />} {full ? t("Свернуть") : t("Развернуть")}
+    </button>
+  );
+}
+
 function CombinedTree() {
   const t = useT();
   const [tracksData, loaded] = useAllTracksData();
@@ -4124,6 +4157,7 @@ function CombinedTree() {
   const [links, setLinks] = useLinks();
   const [pending, setPending] = useState(null);
   const [modalPair, setModalPair] = useState(null);
+  const [fullscreen, setFullscreen] = useFullscreenToggle();
   const { stageRef, registerRef, paths, recompute } = useConnectorLines(links);
   const { zoom, zoomIn, zoomOut, zoomReset, zoomFit, outerRef, contentRef } = useZoom();
 
@@ -4165,7 +4199,7 @@ function CombinedTree() {
 
   return (
     <LinkCtx.Provider value={{ pending, pick, links, removeLink, registerRef }}>
-      <div className="space-y-3">
+      <div className={fullscreen ? "fixed inset-0 z-50 bg-white overflow-auto p-4 space-y-3" : "space-y-3"}>
         <div className="text-center">
           <div className="inline-block bg-neutral-100 rounded-xl px-4 py-2 text-sm font-semibold text-neutral-700">
             {t("Единая цель Coral Club из")} {TRACKS.length} {t("треков")}
@@ -4221,9 +4255,10 @@ function CombinedTree() {
               <button onClick={zoomFit} className="ml-1 px-2.5 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-xs">
                 {t("уместить все треки")}
               </button>
+              <FullscreenButton full={fullscreen} onToggle={() => setFullscreen((f) => !f)} className="ml-1 flex items-center gap-1 px-2.5 h-7 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-100 text-xs" />
             </div>
 
-            <div ref={outerRef} className="overflow-auto border border-neutral-100 rounded-xl" style={{ maxHeight: "70vh" }}>
+            <div ref={outerRef} className="overflow-auto border border-neutral-100 rounded-xl" style={{ maxHeight: fullscreen ? "calc(100vh - 260px)" : "70vh" }}>
               <div
                 ref={(el) => { contentRef.current = el; stageRef.current = el; }}
                 className="relative flex gap-3 w-max"
@@ -7535,6 +7570,19 @@ function DirectoryManager({ directory, setDirectory }) {
   );
 }
 
+// Shown in the tab bar's own collapsed header, so switching sections and folding the bar
+// away doesn't lose track of which section is actually open.
+const SECTION_LABELS = {
+  combined: "Общее дерево OKR", projects: "Проекты", "projects-dashboard": "Дашборд проектов",
+  dashboard: "Дашборд трекинга", gantt: "Гант", "company-functions": "Справочник функций",
+  "bitrix-import": "Импорт из Bitrix24", privileges: "Управление привилегиями",
+};
+function currentSectionLabel(trackId, t) {
+  const track = TRACKS.find((tr) => tr.id === trackId);
+  if (track) return track.name;
+  return t(SECTION_LABELS[trackId] || trackId);
+}
+
 function RoleAuthBar({ auth, onSignedInChange }) {
   const t = useT();
   const { roles, rolesLoaded, session, signIn, signOut, signOutError, busy, signedIn } = auth;
@@ -7661,6 +7709,8 @@ function EmptyStateInvite({ signedIn }) {
 
 export default function App() {
   const [trackId, setTrackId] = useState(TRACKS[0].id);
+  const [tabsOpen, setTabsOpen] = useState(true);
+  const selectTrack = (id) => { setTrackId(id); setTabsOpen(false); };
   const [refreshKey, setRefreshKey] = useState(0);
   const [directory, setDirectory] = useDirectory(refreshKey);
   const [companyFunctions, setCompanyFunctions, companyFunctionsLoaded] = useCompanyFunctions(refreshKey);
@@ -7712,21 +7762,17 @@ export default function App() {
 
         <RoleAuthBar auth={roleAuth} onSignedInChange={() => setRefreshKey((k) => k + 1)} />
 
-        {authCtxValue.isAdmin && (
-          <FullBackupBar />
-        )}
-
-        {authCtxValue.isAdmin && (
-          <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
-        )}
-
-        {authCtxValue.canView("directory") && (
-          <LockOverlay locked={!authCtxValue.canEdit("directory")} reason={t("Справочник редактирует администратор")}>
-            <DirectoryManager directory={directory} setDirectory={setDirectory} />
-          </LockOverlay>
-        )}
-
-        <div className="flex gap-1 mb-4 flex-wrap">
+        <div className="mb-4 border border-neutral-200 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setTabsOpen((o) => !o)}
+            className="w-full flex items-center gap-2 flex-wrap px-3 py-2 bg-neutral-50 hover:bg-neutral-100 text-left"
+          >
+            {tabsOpen ? <ChevronDown size={15} className="text-neutral-500 shrink-0" /> : <ChevronRight size={15} className="text-neutral-500 shrink-0" />}
+            <span className="text-xs font-medium uppercase tracking-wide text-neutral-600 mr-1">{t("Раздел")}</span>
+            <span className="text-xs text-neutral-800 font-medium">{currentSectionLabel(trackId, t)}</span>
+          </button>
+          {tabsOpen && (
+        <div className="flex gap-1 p-3 pt-2 flex-wrap">
           {TRACKS.map((tr) => {
             if (!authCtxValue.canView(`track_${tr.id}`)) return null;
             const color = TRACK_COLORS[tr.id];
@@ -7734,7 +7780,7 @@ export default function App() {
             return (
               <button
                 key={tr.id}
-                onClick={() => setTrackId(tr.id)}
+                onClick={() => selectTrack(tr.id)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border"
                 style={
                   active
@@ -7749,7 +7795,7 @@ export default function App() {
           })}
           {authCtxValue.canView("combined_tree") && (
             <button
-              onClick={() => setTrackId("combined")}
+              onClick={() => selectTrack("combined")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "combined" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7759,7 +7805,7 @@ export default function App() {
           )}
           {authCtxValue.canView("projects") && (
             <button
-              onClick={() => setTrackId("projects")}
+              onClick={() => selectTrack("projects")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "projects" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7769,7 +7815,7 @@ export default function App() {
           )}
           {authCtxValue.canView("projects_dashboard") && (
             <button
-              onClick={() => setTrackId("projects-dashboard")}
+              onClick={() => selectTrack("projects-dashboard")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "projects-dashboard" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7779,7 +7825,7 @@ export default function App() {
           )}
           {authCtxValue.canView("tracking_dashboard") && (
             <button
-              onClick={() => setTrackId("dashboard")}
+              onClick={() => selectTrack("dashboard")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "dashboard" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7789,7 +7835,7 @@ export default function App() {
           )}
           {authCtxValue.canView("gantt") && (
             <button
-              onClick={() => setTrackId("gantt")}
+              onClick={() => selectTrack("gantt")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "gantt" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7799,7 +7845,7 @@ export default function App() {
           )}
           {authCtxValue.canView("company_functions") && (
             <button
-              onClick={() => setTrackId("company-functions")}
+              onClick={() => selectTrack("company-functions")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "company-functions" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7809,7 +7855,7 @@ export default function App() {
           )}
           {authCtxValue.canView("bitrix_import") && (
             <button
-              onClick={() => setTrackId("bitrix-import")}
+              onClick={() => selectTrack("bitrix-import")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "bitrix-import" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
@@ -7819,13 +7865,15 @@ export default function App() {
           )}
           {authCtxValue.canView("privileges") && (
             <button
-              onClick={() => setTrackId("privileges")}
+              onClick={() => selectTrack("privileges")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
                 trackId === "privileges" ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
               }`}
             >
               <ShieldCheck size={13} /> {t("Управление привилегиями")}
             </button>
+          )}
+        </div>
           )}
         </div>
 
@@ -7857,7 +7905,13 @@ export default function App() {
             </LockOverlay>
           ) : trackId === "bitrix-import" && authCtxValue.canView("bitrix_import") ? (
             <LockOverlay locked={!authCtxValue.canEdit("bitrix_import")} reason={t("Импорт доступен администратору")}>
-              <BitrixImportModule key={`bitrix-import-${refreshKey}`} />
+              <div className="space-y-3">
+                {authCtxValue.isAdmin && <FullBackupBar />}
+                {authCtxValue.isAdmin && (
+                  <ExportImportBar directory={directory} setDirectory={setDirectory} onImported={() => setRefreshKey((k) => k + 1)} />
+                )}
+                <BitrixImportModule key={`bitrix-import-${refreshKey}`} />
+              </div>
             </LockOverlay>
           ) : trackId === "privileges" && authCtxValue.canView("privileges") ? (
             <PrivilegesManager key={`privileges-${refreshKey}`} auth={roleAuth} />
