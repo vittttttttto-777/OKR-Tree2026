@@ -166,6 +166,13 @@ const EN_DICT = {
   "Раздел": "Section",
   "Развернуть": "Expand",
   "Свернуть": "Collapse",
+  "Сохранение…": "Saving…",
+  "Не удалось сохранить": "Couldn't save",
+  "сеть моргнула? попробуем ещё раз": "network hiccup? we'll retry",
+  "Кто-то ещё сохранил эти же данные, пока вы их редактировали": "Someone else saved this same data while you were editing it",
+  "Ваши последние правки не сохранены — обновите страницу и внесите их заново.": "Your latest edits weren't saved — reload the page and redo them.",
+  "Обновить": "Reload",
+  "Единая цель, доли треков и легенда": "Unified goal, track shares and legend",
   "Не удалось загрузить справочник функций — ничего не сохранено и не потеряно.": "Couldn't load the functions directory — nothing was saved or lost.",
   "Инициатива": "Initiative",
   "Инициативы": "Initiatives",
@@ -4158,6 +4165,7 @@ function CombinedTree() {
   const [pending, setPending] = useState(null);
   const [modalPair, setModalPair] = useState(null);
   const [fullscreen, setFullscreen] = useFullscreenToggle();
+  const [infoOpen, setInfoOpen] = useState(true);
   const { stageRef, registerRef, paths, recompute } = useConnectorLines(links);
   const { zoom, zoomIn, zoomOut, zoomReset, zoomFit, outerRef, contentRef } = useZoom();
 
@@ -4200,6 +4208,16 @@ function CombinedTree() {
   return (
     <LinkCtx.Provider value={{ pending, pick, links, removeLink, registerRef }}>
       <div className={fullscreen ? "fixed inset-0 z-50 bg-white overflow-auto p-4 space-y-3" : "space-y-3"}>
+        <div className="border border-neutral-200 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setInfoOpen((o) => !o)}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 bg-neutral-50 hover:bg-neutral-100 text-xs text-neutral-500"
+          >
+            {infoOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {infoOpen ? t("Свернуть") : t("Единая цель, доли треков и легенда")}
+          </button>
+          {infoOpen && (
+          <div className="p-3 space-y-3">
         <div className="text-center">
           <div className="inline-block bg-neutral-100 rounded-xl px-4 py-2 text-sm font-semibold text-neutral-700">
             {t("Единая цель Coral Club из")} {TRACKS.length} {t("треков")}
@@ -4236,6 +4254,9 @@ function CombinedTree() {
               {lt.icon} {t(lt.label)}
             </span>
           ))}
+        </div>
+          </div>
+          )}
         </div>
 
         <LinkBanner pending={pending} onCancel={() => setPending(null)} />
@@ -7086,26 +7107,148 @@ function useRoleAuth() {
 // Both reads AND writes now go through password-checked RPCs (okr_load_data / okr_save_data) —
 // the table itself has no direct SELECT grant for anon/authenticated, so an unauthenticated
 // visitor (or anyone with just the public anon key) can no longer read the data directly.
+// ---- Save reliability (fixes: silent write failures, no "saving…" indicator, no warning
+// before leaving mid-save) — all centralized here since every save in the app goes through
+// this one function, rather than needing 7 separate fixes in every module.
+//
+// - pendingWriteCount / notifyPendingWrites(): drives the visible "Сохранение…" status pill
+//   and a beforeunload warning so people don't navigate away mid-write without knowing.
+// - retryRpcCall(): each write gets 3 automatic retries with backoff before it's treated as
+//   a real failure — covers the common case (a brief network blip), not just a hard outage.
+// - okr-save-outbox (localStorage): a write that still fails after retries is queued here
+//   (not just held in memory) so it survives a reload, and is retried automatically once the
+//   browser reports 'online' again, or manually via the error banner's "Повторить" button.
+let pendingWriteCount = 0;
+function notifyPendingWrites() {
+  try { window.dispatchEvent(new CustomEvent("okr-pending-writes", { detail: pendingWriteCount })); } catch {}
+}
+const OUTBOX_KEY = "okr-save-outbox";
+function readOutbox() {
+  try { return JSON.parse(localStorage.getItem(OUTBOX_KEY) || "{}"); } catch { return {}; }
+}
+function writeOutbox(box) {
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(box)); } catch {}
+}
+function queueOutbox(key, value, message, expectedUpdatedAt) {
+  const box = readOutbox();
+  box[key] = { value, message, expectedUpdatedAt: expectedUpdatedAt || null, at: new Date().toISOString() };
+  writeOutbox(box);
+  notifySaveErrors();
+}
+function clearOutbox(key) {
+  const box = readOutbox();
+  if (key in box) { delete box[key]; writeOutbox(box); notifySaveErrors(); }
+}
+function notifySaveErrors() {
+  try { window.dispatchEvent(new CustomEvent("okr-save-errors", { detail: readOutbox() })); } catch {}
+}
+// Conflicts are a different situation from a network blip: retrying the same stale write won't
+// help, and the data that would be overwritten is someone else's real, already-saved change —
+// so this is surfaced as its own list, separate from the transient-failure outbox, and it does
+// NOT get auto-retried or persisted to localStorage (retrying it blind could still stomp on
+// whatever the other person saved *after* this conflict, so it needs a person to look at it).
+let conflictKeys = new Map(); // key -> message
+function reportConflict(key, message) {
+  conflictKeys.set(key, message);
+  try { window.dispatchEvent(new CustomEvent("okr-save-conflicts", { detail: new Map(conflictKeys) })); } catch {}
+}
+async function retryRpcCall(fn, attempts = 3, stopRetrying) {
+  let lastErr;
+  for (let i = 0; i <= attempts; i++) {
+    try { return await fn(); }
+    catch (err) {
+      lastErr = err;
+      if (stopRetrying && stopRetrying(err)) throw err;
+      if (i < attempts) await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+async function rawSupabaseSave(session, key, value, expectedUpdatedAt) {
+  const moduleKey = moduleKeyForDataKey(key);
+  let parsed;
+  try { parsed = JSON.parse(value); } catch { parsed = value; }
+  const { data, error } = await supabase.rpc("okr_save_data_checked", {
+    p_role_id: session.roleId, p_password: session.password,
+    p_module_key: moduleKey, p_data_key: key, p_value: parsed,
+    p_expected_updated_at: expectedUpdatedAt || null,
+  });
+  if (error) throw new Error(error.message || tSync("Не удалось сохранить данные."));
+  return data; // the new updated_at, to chain the next save in this tab against
+}
+async function checkedSave(session, key, value, expected) {
+  try {
+    return await rawSupabaseSave(session, key, value, expected);
+  } catch (err) {
+    if (err.message && err.message.startsWith("CONFLICT:")) {
+      const conflictErr = new Error(err.message.replace(/^CONFLICT:\s*/, ""));
+      conflictErr.isConflict = true;
+      throw conflictErr;
+    }
+    throw err;
+  }
+}
+// Replays every queued outbox entry against the given session — used on reconnect ('online')
+// and by the manual "Повторить" button in the save-error banner. Goes through the very same
+// version check as a normal save: if the version drifted while this browser was offline, it
+// becomes a conflict (reported, not silently forced through) rather than a blind overwrite.
+async function flushOutbox(session) {
+  if (!session) return;
+  const box = readOutbox();
+  for (const key of Object.keys(box)) {
+    try {
+      const newVersion = await checkedSave(session, key, box[key].value, box[key].expectedUpdatedAt);
+      lastSeenVersion.set(key, newVersion);
+      clearOutbox(key);
+    } catch (err) {
+      if (err.isConflict) { reportConflict(key, err.message); clearOutbox(key); }
+      // otherwise still failing for a mundane reason — stays queued for next attempt
+    }
+  }
+}
+
+// One shared cache of "updated_at we last saw" per data key — module-scoped (not per storage
+// instance) so a background outbox flush and a foreground save from the same tab always agree
+// on which version they're building on top of, instead of drifting out of sync with each other.
+const lastSeenVersion = new Map();
+
 function makeSupabaseStorage(session) {
   return {
     async get(key) {
       const { data, error } = await supabase.rpc("okr_load_data", {
         p_role_id: session.roleId, p_password: session.password, p_key: key,
       });
-      if (error || data == null) return null;
-      return { key, value: JSON.stringify(data), shared: true };
+      const row = data && data[0];
+      if (error || !row || row.value == null) return null;
+      lastSeenVersion.set(key, row.updated_at);
+      return { key, value: JSON.stringify(row.value), shared: true };
     },
     async set(key, value) {
       if (!session) throw new Error(tSync("Войдите, чтобы сохранять изменения."));
-      const moduleKey = moduleKeyForDataKey(key);
-      let parsed;
-      try { parsed = JSON.parse(value); } catch { parsed = value; }
-      const { error } = await supabase.rpc("okr_save_data", {
-        p_role_id: session.roleId, p_password: session.password,
-        p_module_key: moduleKey, p_data_key: key, p_value: parsed,
-      });
-      if (error) throw new Error(error.message || tSync("Не удалось сохранить данные."));
-      return { key, value, shared: true };
+      pendingWriteCount++; notifyPendingWrites();
+      try {
+        const expected = lastSeenVersion.has(key) ? lastSeenVersion.get(key) : null;
+        // A version conflict is not a transient network problem — retrying the exact same
+        // stale write will just conflict again, so it short-circuits the retry loop below.
+        const newVersion = await retryRpcCall(
+          () => checkedSave(session, key, value, expected),
+          3,
+          (err) => !!err.isConflict
+        );
+        lastSeenVersion.set(key, newVersion);
+        clearOutbox(key);
+        return { key, value, shared: true };
+      } catch (err) {
+        if (err.isConflict) {
+          reportConflict(key, err.message);
+          throw err;
+        }
+        const message = (err && err.message) || tSync("Не удалось сохранить данные.");
+        queueOutbox(key, value, message, lastSeenVersion.get(key) || null);
+        throw new Error(message);
+      } finally {
+        pendingWriteCount--; notifyPendingWrites();
+      }
     },
     async delete(key) {
       return this.set(key, "null");
@@ -7130,6 +7273,71 @@ function makeLocalDemoStorage() {
     async delete() { throw new Error(tSync("Войдите, чтобы сохранять изменения.")); },
     async list() { return { keys: [], shared: false }; },
   };
+}
+
+// Small always-visible status pill (bottom-right) — "Сохранение…" while a write is in
+// flight, or a persistent error banner with a manual retry if something is stuck in the
+// outbox after retries were exhausted. Fixes: no feedback during save, silent write failures.
+function SaveStatusIndicator({ session }) {
+  const t = useT();
+  const [pending, setPending] = useState(0);
+  const [outbox, setOutbox] = useState(() => readOutbox());
+  const [conflicts, setConflicts] = useState(() => new Map());
+
+  useEffect(() => {
+    const onPending = (e) => setPending(e.detail || 0);
+    const onErrors = (e) => setOutbox(e.detail || {});
+    const onConflicts = (e) => setConflicts(e.detail || new Map());
+    window.addEventListener("okr-pending-writes", onPending);
+    window.addEventListener("okr-save-errors", onErrors);
+    window.addEventListener("okr-save-conflicts", onConflicts);
+    return () => {
+      window.removeEventListener("okr-pending-writes", onPending);
+      window.removeEventListener("okr-save-errors", onErrors);
+      window.removeEventListener("okr-save-conflicts", onConflicts);
+    };
+  }, []);
+
+  const failedCount = Object.keys(outbox).length;
+  const conflictCount = conflicts.size;
+  if (pending === 0 && failedCount === 0 && conflictCount === 0) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[60] max-w-xs space-y-2">
+      {conflictCount > 0 && (
+        <div className="flex items-center gap-2 bg-orange-50 border border-orange-300 text-orange-800 rounded-xl px-3 py-2 text-xs shadow-sm">
+          <span className="flex-1">
+            {t("Кто-то ещё сохранил эти же данные, пока вы их редактировали")} ({conflictCount}). {t("Ваши последние правки не сохранены — обновите страницу и внесите их заново.")}
+          </span>
+          <button
+            onClick={() => window.location.reload()}
+            className="shrink-0 border border-orange-300 rounded-md px-2 py-1 hover:bg-orange-100 font-medium"
+          >
+            {t("Обновить")}
+          </button>
+        </div>
+      )}
+      {failedCount > 0 && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2 text-xs shadow-sm">
+          <span className="flex-1">
+            {t("Не удалось сохранить")} ({failedCount}) — {t("сеть моргнула? попробуем ещё раз")}
+          </span>
+          <button
+            onClick={() => flushOutbox(session)}
+            className="shrink-0 border border-red-300 rounded-md px-2 py-1 hover:bg-red-100 font-medium"
+          >
+            {t("Повторить")}
+          </button>
+        </div>
+      )}
+      {pending > 0 && failedCount === 0 && conflictCount === 0 && (
+        <div className="flex items-center gap-2 bg-neutral-800 text-white rounded-full px-3 py-1.5 text-xs shadow-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+          {t("Сохранение…")}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const AuthCtx = createContext({ signedIn: false, roleId: null, roleName: null, permissions: {} });
@@ -7742,10 +7950,34 @@ export default function App() {
     window.storage = roleAuth.session ? makeSupabaseStorage(roleAuth.session) : makeLocalDemoStorage();
   }, [roleAuth.session]);
 
+  // Reconnect handling: as soon as the browser reports it's back online, replay anything that
+  // got queued to the outbox while a save kept failing (see makeSupabaseStorage above).
+  useEffect(() => {
+    if (!roleAuth.session) return;
+    flushOutbox(roleAuth.session);
+    const onOnline = () => flushOutbox(roleAuth.session);
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [roleAuth.session]);
+
+  // Warn before leaving mid-save or with unsent changes still queued — the browser doesn't
+  // let a page block navigation outright, only show its own generic confirmation prompt.
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (pendingWriteCount > 0 || Object.keys(readOutbox()).length > 0) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   return (
     <LanguageCtx.Provider value={lang}>
     <div className="w-full bg-white text-neutral-900">
       <style>{`.t11{font-size:11px;line-height:1.35}.t10{font-size:10px;line-height:1.3}`}</style>
+      <SaveStatusIndicator session={roleAuth.session} />
       <div className="w-full px-3 sm:px-6 lg:px-10 py-6">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
